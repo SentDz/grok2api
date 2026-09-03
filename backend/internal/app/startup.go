@@ -20,7 +20,6 @@ const (
 	startupCriticalWindow      = 2 * time.Minute
 	startupCriticalLimit       = 100
 	statsigWarmupInterval      = 15 * time.Minute
-	webQuotaStaleAfter         = 30 * time.Minute
 	webQuotaCatchupEvery       = 30 * time.Minute
 	consoleUsageMigrationEvery = 24 * time.Hour
 	consoleUsageMigrationRetry = 5 * time.Minute
@@ -403,7 +402,11 @@ func (a *Application) runWebQuotaCatchup(ctx context.Context) {
 			return
 		case <-timer.C:
 		}
-		ids, err := a.accountRepo.ListStaleWebQuotaAccountIDs(ctx, time.Now().UTC().Add(-webQuotaStaleAfter), 100)
+		if a.settings != nil && !a.settings.Get().Config.ProviderWeb.AutoQuotaSyncEnabled {
+			resetTimer(timer, webQuotaCatchupEvery)
+			continue
+		}
+		ids, err := a.accountRepo.ListWebQuotaAccountIDsWithoutSnapshots(ctx, 100)
 		if err == nil && len(ids) > 0 {
 			runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			var succeeded int

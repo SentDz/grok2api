@@ -256,6 +256,48 @@ func TestAccountRepositoryDecrementsQuotaByAmountAtomically(t *testing.T) {
 	}
 }
 
+func TestListWebQuotaAccountIDsWithoutSnapshotsExcludesEveryExistingWindow(t *testing.T) {
+	ctx := context.Background()
+	repo := NewAccountRepository(openTestDatabase(t))
+	create := func(providerValue account.Provider, name string) account.Credential {
+		value, _, err := repo.UpsertByIdentity(ctx, account.Credential{
+			Provider: providerValue, AuthType: account.AuthTypeSSO, Name: name, SourceKey: name,
+			EncryptedAccessToken: testEncryptedToken, Enabled: true, AuthStatus: account.AuthStatusActive,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+
+	missing := create(account.ProviderWeb, "web-missing-quota")
+	withSnapshot := create(account.ProviderWeb, "web-existing-quota")
+	if err := repo.SaveQuotaWindows(ctx, withSnapshot.ID, account.WebTierBasic, time.Now().UTC(), []account.QuotaWindow{{
+		AccountID: withSnapshot.ID, Mode: "fast", Remaining: 30, Total: 30,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	disabled := create(account.ProviderWeb, "web-disabled-missing-quota")
+	disabled.Enabled = false
+	if _, err := repo.Update(ctx, disabled); err != nil {
+		t.Fatal(err)
+	}
+	reauth := create(account.ProviderWeb, "web-reauth-missing-quota")
+	reauth.AuthStatus = account.AuthStatusReauthRequired
+	if _, err := repo.Update(ctx, reauth); err != nil {
+		t.Fatal(err)
+	}
+	create(account.ProviderBuild, "build-missing-quota")
+
+	ids, err := repo.ListWebQuotaAccountIDsWithoutSnapshots(ctx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != missing.ID {
+		t.Fatalf("accounts without Web quota snapshots = %#v, want [%d]", ids, missing.ID)
+	}
+}
+
 func TestAccountRepositoryReplacesQuotaGroupWithoutTouchingOtherModes(t *testing.T) {
 	ctx := context.Background()
 	repo := NewAccountRepository(openTestDatabase(t))

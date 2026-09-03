@@ -37,24 +37,28 @@ type ProviderBuildRecommendation struct {
 }
 
 type ProviderWebConfig struct {
-	BaseURL                 string
-	StatsigMode             string
-	StatsigManualValue      string
-	StatsigManualConfigured bool
-	StatsigSignerURL        string
-	ClearanceMode           string
-	FlareSolverrURL         string
-	ClearanceTimeout        string
-	ClearanceRefresh        string
-	QuotaTimeout            string
-	ChatTimeout             string
-	StreamIdleTimeout       string
-	ImageTimeout            string
-	VideoTimeout            string
-	MediaConcurrency        int
-	AllowNSFW               bool
-	RecoveryBackoffBase     string
-	RecoveryBackoffMax      string
+	BaseURL              string
+	AutoQuotaSyncEnabled bool
+	// AutoQuotaSyncEnabledProvided preserves the current value when an older
+	// management client omits the newly added field.
+	AutoQuotaSyncEnabledProvided bool
+	StatsigMode                  string
+	StatsigManualValue           string
+	StatsigManualConfigured      bool
+	StatsigSignerURL             string
+	ClearanceMode                string
+	FlareSolverrURL              string
+	ClearanceTimeout             string
+	ClearanceRefresh             string
+	QuotaTimeout                 string
+	ChatTimeout                  string
+	StreamIdleTimeout            string
+	ImageTimeout                 string
+	VideoTimeout                 string
+	MediaConcurrency             int
+	AllowNSFW                    bool
+	RecoveryBackoffBase          string
+	RecoveryBackoffMax           string
 	// ClearanceProvided distinguishes older admin clients that predate the
 	// managed-clearance fields from an explicit update to those fields.
 	ClearanceProvided bool
@@ -346,9 +350,14 @@ func applyDomainConfig(base config.Config, value settingsdomain.Config) config.C
 	if clearanceRefresh <= 0 {
 		clearanceRefresh = base.Provider.Web.ClearanceRefresh.Value()
 	}
+	autoQuotaSyncEnabled := base.Provider.Web.AutoQuotaSyncEnabled
+	if value.ProviderWeb.AutoQuotaSyncEnabled != nil {
+		autoQuotaSyncEnabled = *value.ProviderWeb.AutoQuotaSyncEnabled
+	}
 	base.Provider.Web = config.WebProviderConfig{
 		BaseURL: value.ProviderWeb.BaseURL, QuotaTimeout: config.Duration(value.ProviderWeb.QuotaTimeout),
-		StatsigMode: value.ProviderWeb.StatsigMode, StatsigManualValue: value.ProviderWeb.StatsigManualValue, StatsigSignerURL: value.ProviderWeb.StatsigSignerURL,
+		AutoQuotaSyncEnabled: autoQuotaSyncEnabled,
+		StatsigMode:          value.ProviderWeb.StatsigMode, StatsigManualValue: value.ProviderWeb.StatsigManualValue, StatsigSignerURL: value.ProviderWeb.StatsigSignerURL,
 		ClearanceMode: clearanceMode, FlareSolverrURL: flareSolverrURL,
 		ClearanceTimeout: config.Duration(clearanceTimeout), ClearanceRefresh: config.Duration(clearanceRefresh),
 		ChatTimeout: config.Duration(value.ProviderWeb.ChatTimeout), StreamIdleTimeout: config.Duration(value.ProviderWeb.StreamIdleTimeout),
@@ -485,7 +494,8 @@ func toDomainConfig(value config.Config) settingsdomain.Config {
 		},
 		ProviderWeb: settingsdomain.ProviderWebConfig{
 			BaseURL: value.Provider.Web.BaseURL, QuotaTimeout: value.Provider.Web.QuotaTimeout.Value(),
-			StatsigMode: value.Provider.Web.StatsigMode, StatsigManualValue: value.Provider.Web.StatsigManualValue,
+			AutoQuotaSyncEnabled: boolPointer(value.Provider.Web.AutoQuotaSyncEnabled),
+			StatsigMode:          value.Provider.Web.StatsigMode, StatsigManualValue: value.Provider.Web.StatsigManualValue,
 			StatsigSignerURL: value.Provider.Web.StatsigSignerURL,
 			ClearanceMode:    value.Provider.Web.ClearanceMode, FlareSolverrURL: value.Provider.Web.FlareSolverrURL,
 			ClearanceTimeout: value.Provider.Web.ClearanceTimeout.Value(), ClearanceRefresh: value.Provider.Web.ClearanceRefresh.Value(),
@@ -579,6 +589,9 @@ func mergeEditable(current config.Config, input EditableConfig) (config.Config, 
 	}
 	next.Provider.Build.UserAgent = strings.TrimSpace(input.ProviderBuild.UserAgent)
 	next.Provider.Web.BaseURL = strings.TrimSpace(input.ProviderWeb.BaseURL)
+	if input.ProviderWeb.AutoQuotaSyncEnabledProvided {
+		next.Provider.Web.AutoQuotaSyncEnabled = input.ProviderWeb.AutoQuotaSyncEnabled
+	}
 	next.Provider.Web.StatsigMode = strings.TrimSpace(input.ProviderWeb.StatsigMode)
 	next.Provider.Web.StatsigSignerURL = strings.TrimSpace(input.ProviderWeb.StatsigSignerURL)
 	if input.ProviderWeb.ClearanceProvided {
@@ -730,6 +743,7 @@ func toEditable(cfg config.Config) EditableConfig {
 		},
 		ProviderWeb: ProviderWebConfig{
 			BaseURL: cfg.Provider.Web.BaseURL, QuotaTimeout: cfg.Provider.Web.QuotaTimeout.String(),
+			AutoQuotaSyncEnabled: cfg.Provider.Web.AutoQuotaSyncEnabled, AutoQuotaSyncEnabledProvided: true,
 			StatsigMode: cfg.Provider.Web.StatsigMode, StatsigManualConfigured: strings.TrimSpace(cfg.Provider.Web.StatsigManualValue) != "",
 			StatsigSignerURL: cfg.Provider.Web.StatsigSignerURL,
 			ClearanceMode:    cfg.Provider.Web.ClearanceMode, FlareSolverrURL: cfg.Provider.Web.FlareSolverrURL,
@@ -815,6 +829,10 @@ func normalizeForbiddenCodes(values []string) []string {
 }
 
 func float64Pointer(value float64) *float64 {
+	return &value
+}
+
+func boolPointer(value bool) *bool {
 	return &value
 }
 

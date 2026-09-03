@@ -164,23 +164,24 @@ type BuildProviderConfig struct {
 const DefaultBuildFallbackBaseURL = "https://api.x.ai/v1"
 
 type WebProviderConfig struct {
-	BaseURL             string   `yaml:"baseURL"`
-	StatsigMode         string   `yaml:"-"`
-	StatsigManualValue  string   `yaml:"-"`
-	StatsigSignerURL    string   `yaml:"-"`
-	ClearanceMode       string   `yaml:"-"`
-	FlareSolverrURL     string   `yaml:"-"`
-	ClearanceTimeout    Duration `yaml:"-"`
-	ClearanceRefresh    Duration `yaml:"-"`
-	QuotaTimeout        Duration `yaml:"quotaTimeout"`
-	ChatTimeout         Duration `yaml:"chatTimeout"`
-	StreamIdleTimeout   Duration `yaml:"-"`
-	ImageTimeout        Duration `yaml:"imageTimeout"`
-	VideoTimeout        Duration `yaml:"videoTimeout"`
-	MediaConcurrency    int      `yaml:"mediaConcurrency"`
-	AllowNSFW           bool     `yaml:"allowNSFW"`
-	RecoveryBackoffBase Duration `yaml:"recoveryBackoffBase"`
-	RecoveryBackoffMax  Duration `yaml:"recoveryBackoffMax"`
+	BaseURL              string   `yaml:"baseURL"`
+	AutoQuotaSyncEnabled bool     `yaml:"-"`
+	StatsigMode          string   `yaml:"-"`
+	StatsigManualValue   string   `yaml:"-"`
+	StatsigSignerURL     string   `yaml:"-"`
+	ClearanceMode        string   `yaml:"-"`
+	FlareSolverrURL      string   `yaml:"-"`
+	ClearanceTimeout     Duration `yaml:"-"`
+	ClearanceRefresh     Duration `yaml:"-"`
+	QuotaTimeout         Duration `yaml:"quotaTimeout"`
+	ChatTimeout          Duration `yaml:"chatTimeout"`
+	StreamIdleTimeout    Duration `yaml:"-"`
+	ImageTimeout         Duration `yaml:"imageTimeout"`
+	VideoTimeout         Duration `yaml:"videoTimeout"`
+	MediaConcurrency     int      `yaml:"mediaConcurrency"`
+	AllowNSFW            bool     `yaml:"allowNSFW"`
+	RecoveryBackoffBase  Duration `yaml:"recoveryBackoffBase"`
+	RecoveryBackoffMax   Duration `yaml:"recoveryBackoffMax"`
 }
 
 type ConsoleProviderConfig struct {
@@ -927,7 +928,8 @@ func defaultConfig() Config {
 			},
 			Web: WebProviderConfig{
 				BaseURL: "https://grok.com", StatsigMode: StatsigModeURL, StatsigSignerURL: DefaultStatsigSignerURL,
-				ClearanceMode: ClearanceModeManual, FlareSolverrURL: DefaultFlareSolverrURL,
+				AutoQuotaSyncEnabled: true,
+				ClearanceMode:        ClearanceModeManual, FlareSolverrURL: DefaultFlareSolverrURL,
 				ClearanceTimeout: Duration(time.Minute), ClearanceRefresh: Duration(10 * time.Minute),
 				QuotaTimeout: Duration(25 * time.Second),
 				ChatTimeout:  Duration(2 * time.Minute), StreamIdleTimeout: Duration(settingsdomain.DefaultWebStreamIdleTimeout),

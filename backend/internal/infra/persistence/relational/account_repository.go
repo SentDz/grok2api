@@ -2917,8 +2917,10 @@ func (r *AccountRepository) ListQuotaRecoveryWindows(ctx context.Context, limit 
 	return values, nil
 }
 
-// ListStaleWebQuotaAccountIDs 返回缺失或长期未同步额度的 Web 账号，供重启后的低优先级追赶任务使用。
-func (r *AccountRepository) ListStaleWebQuotaAccountIDs(ctx context.Context, before time.Time, limit int) ([]uint64, error) {
+// ListWebQuotaAccountIDsWithoutSnapshots returns enabled Web accounts that do
+// not have any quota window. Existing snapshots are never refreshed by the
+// background catch-up, regardless of their age.
+func (r *AccountRepository) ListWebQuotaAccountIDsWithoutSnapshots(ctx context.Context, limit int) ([]uint64, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
@@ -2926,11 +2928,9 @@ func (r *AccountRepository) ListStaleWebQuotaAccountIDs(ctx context.Context, bef
 	err := r.db.db.WithContext(ctx).
 		Table("provider_accounts AS account").
 		Select("account.id").
-		Joins("LEFT JOIN account_quota_windows AS quota ON quota.account_id = account.id").
 		Where("account.provider = ? AND account.enabled = ? AND account.auth_status = ?", account.ProviderWeb, true, account.AuthStatusActive).
-		Group("account.id").
-		Having("MAX(quota.synced_at) IS NULL OR MAX(quota.synced_at) < ?", before.UTC()).
-		Order("MIN(quota.synced_at) ASC, account.id ASC").
+		Where("NOT EXISTS (SELECT 1 FROM account_quota_windows AS quota WHERE quota.account_id = account.id)").
+		Order("account.id ASC").
 		Limit(limit).
 		Scan(&ids).Error
 	return ids, err

@@ -195,5 +195,5 @@ type AccountRepository interface {
 	ExhaustQuotaWindow(ctx context.Context, accountID uint64, mode string, resetAt *time.Time, now time.Time) error
 	ListDueQuotaWindows(ctx context.Context, now time.Time, limit int) ([]account.QuotaWindow, error)
 	ListQuotaRecoveryWindows(ctx context.Context, limit int) ([]account.QuotaWindow, error)
-	ListStaleWebQuotaAccountIDs(ctx context.Context, before time.Time, limit int) ([]uint64, error)
+	ListWebQuotaAccountIDsWithoutSnapshots(ctx context.Context, limit int) ([]uint64, error)
 }

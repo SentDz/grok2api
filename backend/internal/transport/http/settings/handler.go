@@ -70,6 +70,7 @@ type providerBuildConfigDTO struct {
 
 type providerWebConfigDTO struct {
 	BaseURL                 string  `json:"baseURL"`
+	AutoQuotaSyncEnabled    *bool   `json:"autoQuotaSyncEnabled,omitempty"`
 	StatsigMode             string  `json:"statsigMode"`
 	StatsigManualValue      string  `json:"statsigManualValue,omitempty"`
 	StatsigManualConfigured bool    `json:"statsigManualConfigured"`
@@ -201,7 +202,9 @@ func (value settingsConfigDTO) toApplication() settingsapp.EditableConfig {
 		},
 		ProviderWeb: settingsapp.ProviderWebConfig{
 			BaseURL: value.ProviderWeb.BaseURL, QuotaTimeout: value.ProviderWeb.QuotaTimeout,
-			StatsigMode: value.ProviderWeb.StatsigMode, StatsigManualValue: value.ProviderWeb.StatsigManualValue,
+			AutoQuotaSyncEnabled:         boolValue(value.ProviderWeb.AutoQuotaSyncEnabled),
+			AutoQuotaSyncEnabledProvided: value.ProviderWeb.AutoQuotaSyncEnabled != nil,
+			StatsigMode:                  value.ProviderWeb.StatsigMode, StatsigManualValue: value.ProviderWeb.StatsigManualValue,
 			StatsigManualConfigured: value.ProviderWeb.StatsigManualConfigured, StatsigSignerURL: value.ProviderWeb.StatsigSignerURL,
 			ClearanceMode: optionalString(value.ProviderWeb.ClearanceMode), FlareSolverrURL: optionalString(value.ProviderWeb.FlareSolverrURL),
 			ClearanceTimeout: optionalString(value.ProviderWeb.ClearanceTimeout), ClearanceRefresh: optionalString(value.ProviderWeb.ClearanceRefresh),
@@ -291,7 +294,8 @@ func newSettingsResponse(value settingsapp.Snapshot) settingsResponse {
 			},
 			ProviderWeb: providerWebConfigDTO{
 				BaseURL: config.ProviderWeb.BaseURL, QuotaTimeout: config.ProviderWeb.QuotaTimeout,
-				StatsigMode: config.ProviderWeb.StatsigMode, StatsigManualConfigured: config.ProviderWeb.StatsigManualConfigured,
+				AutoQuotaSyncEnabled: boolPointer(config.ProviderWeb.AutoQuotaSyncEnabled),
+				StatsigMode:          config.ProviderWeb.StatsigMode, StatsigManualConfigured: config.ProviderWeb.StatsigManualConfigured,
 				StatsigSignerURL: config.ProviderWeb.StatsigSignerURL,
 				ClearanceMode:    stringPointer(config.ProviderWeb.ClearanceMode), FlareSolverrURL: stringPointer(config.ProviderWeb.FlareSolverrURL),
 				ClearanceTimeout: stringPointer(config.ProviderWeb.ClearanceTimeout), ClearanceRefresh: stringPointer(config.ProviderWeb.ClearanceRefresh),

@@ -103,6 +103,52 @@ func TestUpdatePersistsAppliesAndReportsRestart(t *testing.T) {
 	}
 }
 
+func TestWebAutoQuotaSyncSettingDefaultsOnAndRoundTripsOff(t *testing.T) {
+	cfg := testConfig(t)
+	if !cfg.Provider.Web.AutoQuotaSyncEnabled {
+		t.Fatal("Web automatic quota sync must default to enabled")
+	}
+	repository := &runtimeSettingsRepositoryStub{}
+	var applied config.Config
+	service := NewService(cfg, time.Time{}, 0, repository, nil, func(next config.Config) { applied = next })
+	input := service.Get().Config
+	input.ProviderWeb.AutoQuotaSyncEnabled = false
+	input.ProviderWeb.AutoQuotaSyncEnabledProvided = true
+
+	snapshot, err := service.Update(context.Background(), 0, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Provider.Web.AutoQuotaSyncEnabled || snapshot.Config.ProviderWeb.AutoQuotaSyncEnabled {
+		t.Fatal("explicitly disabled Web automatic quota sync remained enabled")
+	}
+	if repository.value.ProviderWeb.AutoQuotaSyncEnabled == nil || *repository.value.ProviderWeb.AutoQuotaSyncEnabled {
+		t.Fatalf("persisted Web automatic quota sync = %#v", repository.value.ProviderWeb.AutoQuotaSyncEnabled)
+	}
+	reloaded, _, _, err := LoadPersisted(context.Background(), cfg, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Provider.Web.AutoQuotaSyncEnabled {
+		t.Fatal("disabled Web automatic quota sync was not restored")
+	}
+}
+
+func TestLoadPersistedKeepsWebAutoQuotaSyncDefaultForOlderPayload(t *testing.T) {
+	cfg := testConfig(t)
+	value := toDomainConfig(cfg)
+	value.ProviderWeb.AutoQuotaSyncEnabled = nil
+	repository := &runtimeSettingsRepositoryStub{value: value, found: true}
+
+	loaded, _, _, err := LoadPersisted(context.Background(), cfg, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Provider.Web.AutoQuotaSyncEnabled {
+		t.Fatal("older persisted settings disabled Web automatic quota sync")
+	}
+}
+
 func TestUpdateRejectsBuildResponseHeaderTimeoutOutsideSafeRange(t *testing.T) {
 	for _, value := range []string{"29s", "31m"} {
 		t.Run(value, func(t *testing.T) {

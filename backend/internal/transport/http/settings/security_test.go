@@ -63,6 +63,32 @@ func TestSettingsResponseIncludesPreferFreeBuild(t *testing.T) {
 	}
 }
 
+func TestWebAutoQuotaSyncSettingsPresenceIsPreserved(t *testing.T) {
+	response := newSettingsResponse(settingsapp.Snapshot{Config: settingsapp.EditableConfig{
+		ProviderWeb: settingsapp.ProviderWebConfig{AutoQuotaSyncEnabled: false},
+	}})
+	if response.Config.ProviderWeb.AutoQuotaSyncEnabled == nil || *response.Config.ProviderWeb.AutoQuotaSyncEnabled {
+		t.Fatal("disabled Web automatic quota sync was lost from settings response")
+	}
+
+	var legacy settingsConfigDTO
+	if err := json.Unmarshal([]byte(`{"providerWeb":{"baseURL":"https://grok.com"}}`), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.toApplication().ProviderWeb.AutoQuotaSyncEnabledProvided {
+		t.Fatal("missing Web automatic quota sync setting was treated as an explicit update")
+	}
+
+	var explicit settingsConfigDTO
+	if err := json.Unmarshal([]byte(`{"providerWeb":{"autoQuotaSyncEnabled":false}}`), &explicit); err != nil {
+		t.Fatal(err)
+	}
+	input := explicit.toApplication().ProviderWeb
+	if !input.AutoQuotaSyncEnabledProvided || input.AutoQuotaSyncEnabled {
+		t.Fatalf("explicit false Web automatic quota sync setting was lost: %#v", input)
+	}
+}
+
 func TestSettingsResponseIncludesMarkBuildChatDeniedAsReauth(t *testing.T) {
 	response := newSettingsResponse(settingsapp.Snapshot{Config: settingsapp.EditableConfig{
 		Routing: settingsapp.RoutingConfig{MarkBuildChatDeniedAsReauth: true},
