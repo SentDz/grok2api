@@ -736,39 +736,6 @@ func TestImageEditAcceptsOfficialJSONShape(t *testing.T) {
 		t.Fatalf("valid multi region status=%d body=%s", validMultiRegionRecorder.Code, validMultiRegionRecorder.Body.String())
 	}
 
-	validContinuation := httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(`{
-		"model":"grok-imagine-image-2.0-web","prompt":"移除此图层","resolution":"1k",
-		"image":{"url":"https://example.com/input.png"},
-		"conversation_id":"9aebbd8b-8ab3-42ac-8238-3ba9b9f1e1e6",
-		"parent_response_id":"512f92b8-cff5-4b5a-a3c7-4f6eeea76aff",
-		"selection_regions":[
-			{"outer":{"points":[0.1,0.1,0.2,0.1,0.2,0.2,0.1,0.2]}},
-			{"outer":{"points":[0.3,0.3,0.4,0.3,0.4,0.4,0.3,0.4]}}
-		]
-	}`))
-	validContinuation.Header.Set("Content-Type", "application/json")
-	validContinuationRecorder := httptest.NewRecorder()
-	router.ServeHTTP(validContinuationRecorder, validContinuation)
-	if validContinuationRecorder.Code != http.StatusUnauthorized {
-		t.Fatalf("valid continuation status=%d body=%s", validContinuationRecorder.Code, validContinuationRecorder.Body.String())
-	}
-
-	validConversationOnly := httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(`{
-		"model":"grok-imagine-image-2.0-web","resolution":"1k",
-		"image":{"url":"https://example.com/input.png"},
-		"conversation_id":"8420e1c5-b027-44b1-b498-c2d10e75a73c",
-		"multi_region_edits":[
-			{"regions":[{"outer":{"points":[0.1,0.1,0.2,0.1,0.2,0.2,0.1,0.2]}}],"prompt":"黑猫"},
-			{"regions":[{"outer":{"points":[0.3,0.3,0.4,0.3,0.4,0.4,0.3,0.4]}}],"prompt":"移除此图层"}
-		]
-	}`))
-	validConversationOnly.Header.Set("Content-Type", "application/json")
-	validConversationOnlyRecorder := httptest.NewRecorder()
-	router.ServeHTTP(validConversationOnlyRecorder, validConversationOnly)
-	if validConversationOnlyRecorder.Code != http.StatusUnauthorized {
-		t.Fatalf("valid conversation-only status=%d body=%s", validConversationOnlyRecorder.Code, validConversationOnlyRecorder.Body.String())
-	}
-
 	invalidResolution := httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(`{
 		"model":"grok-imagine-image-edit","prompt":"test","resolution":"4k",
 		"image":{"url":"https://example.com/input.png"}
@@ -827,7 +794,6 @@ func TestImageEditAcceptsOfficialJSONShape(t *testing.T) {
 		{name: "selection does not support stream", body: `{"model":"grok-imagine-image-edit","prompt":"test","stream":true,"image":{"url":"https://example.com/input.png"},"selection_regions":[{"outer":{"points":[0.1,0.1,0.9,0.1,0.9,0.9]}}]}`},
 		{name: "selection and multi region edits conflict", body: `{"model":"grok-imagine-image-2.0-web","prompt":"test","image":{"url":"https://example.com/input.png"},"selection_regions":[{"outer":{"points":[0.1,0.1,0.9,0.1,0.9,0.9]}}],"multi_region_edits":[{"regions":[{"outer":{"points":[0.1,0.1,0.9,0.1,0.9,0.9]}}],"prompt":"111"}]}`},
 		{name: "multi region edit missing prompt", body: `{"model":"grok-imagine-image-2.0-web","image":{"url":"https://example.com/input.png"},"multi_region_edits":[{"regions":[{"outer":{"points":[0.1,0.1,0.9,0.1,0.9,0.9]}}]}]}`},
-		{name: "parent response without conversation id", body: `{"model":"grok-imagine-image-2.0-web","prompt":"test","image":{"url":"https://example.com/input.png"},"parent_response_id":"resp-1"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(test.body))

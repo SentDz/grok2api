@@ -954,21 +954,22 @@ func TestBuildImageEditPayloadMatchesCapturedMediaGenInputShape(t *testing.T) {
 			{Points: []float64{0.1, 0.7, 0.4, 0.7, 0.4, 0.95, 0.1, 0.95, 0.1, 0.7}},
 		},
 	})
-	for _, field := range []string{"kind", "responseMetadata", "parentResponseId"} {
-		if _, exists := layerEdit[field]; exists {
-			t.Fatalf("layer edit leaked %q: %#v", field, layerEdit)
-		}
+	if layerEdit["kind"] != "CONVERSATION_KIND_IMAGINE" || layerEdit["message"] != "改鞋子" {
+		t.Fatalf("uploaded layer payload = %#v", layerEdit)
+	}
+	if _, exists := layerEdit["parentResponseId"]; exists {
+		t.Fatalf("parentResponseId leaked: %#v", layerEdit)
 	}
 	layerInput := layerEdit["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
-	if layerInput["aspectRatio"] != "auto" {
-		t.Fatalf("layer aspect = %#v", layerInput["aspectRatio"])
+	if _, exists := layerInput["aspectRatio"]; exists {
+		t.Fatalf("segmented edit leaked aspectRatio: %#v", layerInput)
 	}
-	if _, exists := layerInput["multiRegionEdits"]; exists {
-		t.Fatalf("layer edit leaked multiRegionEdits: %#v", layerInput)
+	if _, exists := layerInput["selectionRegions"]; exists {
+		t.Fatalf("uploaded file leaked selectionRegions: %#v", layerInput)
 	}
-	regions, _ := layerInput["selectionRegions"].([]map[string]any)
-	if len(regions) != 1 {
-		t.Fatalf("selectionRegions = %#v", layerInput["selectionRegions"])
+	edits, _ := layerInput["multiRegionEdits"].([]map[string]any)
+	if len(edits) != 1 || edits[0]["prompt"] != "改鞋子" {
+		t.Fatalf("uploaded layer multiRegionEdits = %#v", layerInput["multiRegionEdits"])
 	}
 	mediaGenInput = withoutRatio["mediaGenInput"].(map[string]any)
 	imageToImage = mediaGenInput["imageToImage"].(map[string]any)
@@ -1021,87 +1022,36 @@ func TestBuildImageEditPayloadMatchesCapturedMultiRegionProtocol(t *testing.T) {
 	}
 }
 
-func TestBuildImageEditPayloadMatchesCapturedMultiRegionContinuationProtocol(t *testing.T) {
-	conversationID := "8420e1c5-b027-44b1-b498-c2d10e75a73c"
-	asset := "2c17fae4-1feb-4ff4-ba91-f58f93e9e5ab"
+func TestBuildImageEditPayloadMatchesCapturedUploadedFileNewConversationProtocol(t *testing.T) {
+	asset := "a2bbe690-d97d-4644-b785-7e9a80243194"
 	payload := buildImageEditPayload(imageEditPayloadOptions{
-		Assets:         []string{asset},
-		ConversationID: conversationID,
-		Edits: []provider.ImageRegionEdit{
-			{Regions: []provider.ImageSelectionRegion{{Points: []float64{0.44, 0.23, 0.65, 0.23, 0.65, 0.59}}}, Prompt: "黑猫"},
-			{Regions: []provider.ImageSelectionRegion{{Points: []float64{0.28, 0.26, 0.43, 0.26, 0.43, 0.47}}}, Prompt: "移除此图层"},
-		},
-	})
-	if len(payload) != 6 || payload["message"] != "黑猫; 移除此图层" {
-		t.Fatalf("payload = %#v", payload)
-	}
-	for _, field := range []string{"kind", "responseMetadata", "parentResponseId"} {
-		if _, exists := payload[field]; exists {
-			t.Fatalf("captured continuation leaked %q: %#v", field, payload)
-		}
-	}
-	imageToImage := payload["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
-	if !slices.Equal(imageToImage["inputAssets"].([]string), []string{asset}) {
-		t.Fatalf("inputAssets = %#v", imageToImage["inputAssets"])
-	}
-	edits, _ := imageToImage["multiRegionEdits"].([]map[string]any)
-	if len(edits) != 2 || edits[0]["prompt"] != "黑猫" || edits[1]["prompt"] != "移除此图层" {
-		t.Fatalf("multiRegionEdits = %#v", imageToImage["multiRegionEdits"])
-	}
-	if got := imageEditEndpoint("https://grok.com", conversationID); got != "https://grok.com/rest/app-chat/conversations/"+conversationID+"/responses" {
-		t.Fatalf("endpoint = %q", got)
-	}
-	if got := imageEditReferer("https://grok.com", asset, conversationID); got != "https://grok.com/imagine/post/"+asset+"?conversation="+conversationID {
-		t.Fatalf("referer = %q", got)
-	}
-}
-
-func TestBuildImageEditPayloadMatchesCapturedLayerContinuationProtocol(t *testing.T) {
-	asset := "0c04c8a7-6416-4635-9688-5c455a43dfe7"
-	conversationID := "9aebbd8b-8ab3-42ac-8238-3ba9b9f1e1e6"
-	parentResponseID := "512f92b8-cff5-4b5a-a3c7-4f6eeea76aff"
-	payload := buildImageEditPayload(imageEditPayloadOptions{
-		Prompt: "移除此图层",
 		Assets: []string{asset},
-		Regions: []provider.ImageSelectionRegion{
-			{Points: []float64{0.40673828125, 0.74072265625, 0.41943359375, 0.74072265625, 0.42041015625, 0.75048828125}},
-			{Points: []float64{0.67724609375, 0.83447265625, 0.68017578125, 0.83544921875, 0.67724609375, 0.84228515625}},
-			{Points: []float64{0.57666015625, 0.72021484375, 0.57763671875, 0.72021484375, 0.57861328125, 0.72021484375}},
+		Edits: []provider.ImageRegionEdit{
+			{Regions: []provider.ImageSelectionRegion{{Points: []float64{0.32697947214076245, 0.4111328125, 0.3416422287390029, 0.4150390625}}}, Prompt: "黑色"},
+			{Regions: []provider.ImageSelectionRegion{{Points: []float64{0.03372434017595308, 0.0009765625, 0.218475073313783, 0.0009765625}}}, Prompt: "北京"},
 		},
-		ParentResponseID: parentResponseID,
 	})
-	if len(payload) != 7 || payload["modelName"] != "imagine-image-edit" || payload["message"] != "移除此图层" ||
-		payload["parentResponseId"] != parentResponseID || payload["enableImageStreaming"] != true ||
-		payload["enableSideBySide"] != true || payload["sendFinalMetadata"] != true {
+	if payload["modelName"] != "imagine-image-edit" || payload["message"] != "黑色; 北京" ||
+		payload["kind"] != "CONVERSATION_KIND_IMAGINE" || payload["enableImageStreaming"] != true {
 		t.Fatalf("payload = %#v", payload)
 	}
-	for _, field := range []string{"kind", "responseMetadata"} {
-		if _, exists := payload[field]; exists {
-			t.Fatalf("continuation leaked %q: %#v", field, payload)
-		}
+	if _, exists := payload["parentResponseId"]; exists {
+		t.Fatalf("uploaded file must not continue a conversation: %#v", payload)
+	}
+	modelMap := payload["responseMetadata"].(map[string]any)["modelConfigOverride"].(map[string]any)["modelMap"].(map[string]any)
+	if modelMap["imageEditModel"] != "imagine" {
+		t.Fatalf("imageEditModel = %#v", modelMap["imageEditModel"])
 	}
 	imageToImage := payload["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
-	if imageToImage["prompt"] != "移除此图层" || !slices.Equal(imageToImage["inputAssets"].([]string), []string{asset}) {
+	if imageToImage["prompt"] != "黑色; 北京" || !slices.Equal(imageToImage["inputAssets"].([]string), []string{asset}) {
 		t.Fatalf("imageToImage = %#v", imageToImage)
 	}
-	if _, exists := imageToImage["multiRegionEdits"]; exists {
-		t.Fatalf("continuation leaked multiRegionEdits: %#v", imageToImage)
+	if _, exists := imageToImage["selectionRegions"]; exists {
+		t.Fatalf("selectionRegions leaked: %#v", imageToImage)
 	}
-	regions, _ := imageToImage["selectionRegions"].([]map[string]any)
-	if len(regions) != 3 {
-		t.Fatalf("selectionRegions = %#v", imageToImage["selectionRegions"])
-	}
-	if got := imageEditEndpoint("https://grok.com", conversationID); got != "https://grok.com/rest/app-chat/conversations/"+conversationID+"/responses" {
-		t.Fatalf("endpoint = %q", got)
-	}
-	if got := imageEditReferer("https://grok.com", asset, conversationID); got != "https://grok.com/imagine/post/"+asset+"?conversation="+conversationID {
-		t.Fatalf("referer = %q", got)
-	}
-	if got := imageEditEndpoint("https://grok.com", ""); got != "https://grok.com/rest/app-chat/conversations/new" {
-		t.Fatalf("new endpoint = %q", got)
-	}
-	if got := imageEditReferer("https://grok.com", asset, ""); got != "https://grok.com/imagine/post/"+asset+"?scope=asset" {
-		t.Fatalf("asset referer = %q", got)
+	edits, _ := imageToImage["multiRegionEdits"].([]map[string]any)
+	if len(edits) != 2 || edits[0]["prompt"] != "黑色" || edits[1]["prompt"] != "北京" {
+		t.Fatalf("multiRegionEdits = %#v", imageToImage["multiRegionEdits"])
 	}
 }
 

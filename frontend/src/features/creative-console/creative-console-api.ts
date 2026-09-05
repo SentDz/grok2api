@@ -25,8 +25,6 @@ export type ImageResult = {
   url: string;
   revisedPrompt?: string;
   assetId?: string;
-  conversationId?: string;
-  parentResponseId?: string;
   segmentation?: ImageSegmentation;
 };
 
@@ -138,8 +136,6 @@ export async function editImage(input: {
   prompt: string;
   imageURL: string;
   selectionRegions?: Array<{ outer: { points: number[] } }>;
-  conversationId?: string;
-  parentResponseId?: string;
   signal?: AbortSignal;
 }): Promise<ImageResult[]> {
   const payload = await publicApiRequest(input.apiKey, "/images/edits", {
@@ -152,8 +148,6 @@ export async function editImage(input: {
       resolution: "1k",
       response_format: "url",
       ...(input.selectionRegions?.length ? { selection_regions: input.selectionRegions } : {}),
-      ...(input.conversationId ? { conversation_id: input.conversationId } : {}),
-      ...(input.parentResponseId ? { parent_response_id: input.parentResponseId } : {}),
     },
     signal: input.signal,
   });
@@ -698,8 +692,6 @@ function readImages(payload: unknown): ImageResult[] {
       url,
       revisedPrompt: typeof item.revised_prompt === "string" ? item.revised_prompt : undefined,
       assetId: typeof item.asset_id === "string" ? item.asset_id : undefined,
-      conversationId: typeof item.conversation_id === "string" ? item.conversation_id : undefined,
-      parentResponseId: typeof item.parent_response_id === "string" ? item.parent_response_id : undefined,
       segmentation: readImageSegmentation(item.segmentation),
     }] : [];
   });

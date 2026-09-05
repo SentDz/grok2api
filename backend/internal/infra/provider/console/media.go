@@ -138,9 +138,6 @@ func (a *Adapter) EditImage(ctx context.Context, request provider.ImageEditReque
 	if len(request.SelectionRegions) > 0 || len(request.RegionEdits) > 0 {
 		return invalidConsoleMediaRequest("Grok Console 标准图片接口不支持分段编辑"), nil
 	}
-	if strings.TrimSpace(request.ConversationID) != "" || strings.TrimSpace(request.ParentResponseID) != "" {
-		return invalidConsoleMediaRequest("Grok Console 标准图片接口不支持会话续写"), nil
-	}
 	maxEditImages := consoleMaxEditImages
 	limitModel := request.PublicModel
 	if strings.TrimSpace(limitModel) == "" {
