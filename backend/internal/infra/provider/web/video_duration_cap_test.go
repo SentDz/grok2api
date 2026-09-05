@@ -86,6 +86,7 @@ func TestGenerateVideoCapsBasicCredentialBeforeUpstream(t *testing.T) {
 	}
 	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
 		Credential: credential,
+		Model:      "grok-imagine-video-1.5",
 		Prompt:     "test", Duration: 10,
 	})
 	if err != nil || result.URL != "https://assets.grok.com/videos/final.mp4" {
@@ -97,6 +98,7 @@ func TestGenerateVideoCapsBasicCredentialBeforeUpstream(t *testing.T) {
 
 	_, err = adapter.GenerateVideo(context.Background(), provider.VideoRequest{
 		Credential: credential,
+		Model:      "grok-imagine-video-1.5",
 		Prompt:     "test",
 		Duration:   16,
 	})

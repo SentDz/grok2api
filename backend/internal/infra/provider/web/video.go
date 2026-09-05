@@ -20,6 +20,7 @@ import (
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
 	domainegress "github.com/chenyme/grok2api/backend/internal/domain/egress"
 	mediadomain "github.com/chenyme/grok2api/backend/internal/domain/media"
+	settingsdomain "github.com/chenyme/grok2api/backend/internal/domain/settings"
 	"github.com/chenyme/grok2api/backend/internal/infra/egress"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
 )
@@ -300,10 +301,11 @@ func (a *Adapter) generateLegacyVideo(ctx context.Context, request provider.Vide
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 	}
-	segments := videoSegments(request.Duration)
-	if len(segments) == 0 {
+	if len(videoSegments(request.Duration)) == 0 {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, fmt.Errorf("duration 必须在 1 到 15 秒之间"))
 	}
+	request.Duration = applyFreeWebVideoDurationCap(request.Duration, cfg.FreeVideoDurationCap, request.Credential)
+	segments := videoSegments(request.Duration)
 	if err := rejectUnsupportedWebFreeVideo(request, false); err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
@@ -383,10 +385,11 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 		}
 		audioAssetIDs = append(audioAssetIDs, assetID)
 	}
-	segments := videoSegments(request.Duration)
-	if len(segments) == 0 {
+	if len(videoSegments(request.Duration)) == 0 {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, fmt.Errorf("duration 必须在 1 到 15 秒之间"))
 	}
+	request.Duration = applyFreeWebVideoDurationCap(request.Duration, cfg.FreeVideoDurationCap, request.Credential)
+	segments := videoSegments(request.Duration)
 	if err := rejectUnsupportedWebFreeVideo(request, false); err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
@@ -1083,8 +1086,28 @@ func videoSegments(seconds int) []int {
 	return []int{seconds}
 }
 
+func normalizeFreeVideoDurationCap(value int) int {
+	return settingsdomain.NormalizeWebFreeVideoDurationCap(value)
+}
+
+func shouldCapWebVideoDuration(credential account.Credential) bool {
+	return credential.WebTier == account.WebTierBasic
+}
+
+// applyFreeWebVideoDurationCap 在请求上游前收紧明确识别出的免费账号视频时长。
+func applyFreeWebVideoDurationCap(seconds, cap int, credential account.Credential) int {
+	if !shouldCapWebVideoDuration(credential) {
+		return seconds
+	}
+	cap = normalizeFreeVideoDurationCap(cap)
+	if seconds > cap {
+		return cap
+	}
+	return seconds
+}
+
 func isWebFreeVideoTier(tier account.WebTier) bool {
-	return tier == "" || tier == account.WebTierAuto || tier == account.WebTierBasic
+	return tier == account.WebTierBasic
 }
 
 func rejectUnsupportedWebFreeVideo(request provider.VideoRequest, extend bool) error {

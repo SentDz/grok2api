@@ -47,7 +47,10 @@ func normalizeRequestWithMetadata(body []byte, spec ModelSpec, metadata *provide
 	normalizeReasoning(payload, spec)
 	updateConsoleReasoningMetadata(payload, spec, requestedEffort, metadata)
 	ensureReasoningInclude(payload)
-	toolSummary := normalizeConsoleTools(payload, spec.DisallowsClientTools)
+	toolSummary, err := normalizeConsoleTools(payload, spec.DisallowsClientTools)
+	if err != nil {
+		return nil, err
+	}
 	if err := normalizeConsoleToolChoice(payload, toolSummary, spec.DisallowsClientTools); err != nil {
 		return nil, err
 	}
@@ -249,17 +252,17 @@ type consoleToolSummary struct {
 	removedClientTools  bool
 }
 
-func normalizeConsoleTools(payload map[string]any, disallowsClientTools bool) consoleToolSummary {
+func normalizeConsoleTools(payload map[string]any, disallowsClientTools bool) (consoleToolSummary, error) {
 	summary := consoleToolSummary{}
 	value, exists := payload["tools"]
 	if !exists || value == nil {
 		delete(payload, "tools")
-		return summary
+		return summary, nil
 	}
 	tools, ok := value.([]any)
 	if !ok {
 		delete(payload, "tools")
-		return summary
+		return summary, nil
 	}
 	hasClientViewImage := hasConsoleFunctionTool(tools, "view_image")
 	result := make([]any, 0, len(tools))
@@ -348,7 +351,7 @@ func normalizeConsoleTools(payload map[string]any, disallowsClientTools bool) co
 					if field == "parameters" {
 						normalized, _, err := cli.NormalizeBuildFunctionParametersRoot(fieldValue, "tools.parameters", strings.TrimSpace(name))
 						if err != nil {
-							return false, err
+							return summary, err
 						}
 						clean[field] = normalized
 						continue
@@ -368,10 +371,10 @@ func normalizeConsoleTools(payload map[string]any, disallowsClientTools bool) co
 	}
 	if len(result) == 0 {
 		delete(payload, "tools")
-		return summary
+		return summary, nil
 	}
 	payload["tools"] = result
-	return summary
+	return summary, nil
 }
 
 func hasConsoleFunctionTool(tools []any, target string) bool {
