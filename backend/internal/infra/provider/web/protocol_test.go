@@ -948,36 +948,27 @@ func TestBuildImageEditPayloadMatchesCapturedMediaGenInputShape(t *testing.T) {
 	withoutRatio := buildImageEditPayload(imageEditPayloadOptions{Prompt: "edit", Assets: []string{"metadata-1"}})
 	layerEdit := buildImageEditPayload(imageEditPayloadOptions{
 		Prompt:      "改鞋子",
-		Assets:      []string{"metadata-1", "metadata-2"},
+		Assets:      []string{"metadata-1"},
 		AspectRatio: "auto",
 		Regions: []provider.ImageSelectionRegion{
 			{Points: []float64{0.1, 0.7, 0.4, 0.7, 0.4, 0.95, 0.1, 0.95, 0.1, 0.7}},
 		},
 	})
-	if layerEdit["kind"] != "CONVERSATION_KIND_IMAGINE" || layerEdit["message"] != "改鞋子" {
-		t.Fatalf("new layer payload = %#v", layerEdit)
-	}
-	modelMap := layerEdit["responseMetadata"].(map[string]any)["modelConfigOverride"].(map[string]any)["modelMap"].(map[string]any)
-	if modelMap["imageEditModel"] != "imagine" {
-		t.Fatalf("new layer imageEditModel = %#v", modelMap["imageEditModel"])
+	for _, field := range []string{"kind", "responseMetadata", "parentResponseId"} {
+		if _, exists := layerEdit[field]; exists {
+			t.Fatalf("layer edit leaked %q: %#v", field, layerEdit)
+		}
 	}
 	layerInput := layerEdit["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
 	if layerInput["aspectRatio"] != "auto" {
 		t.Fatalf("layer aspect = %#v", layerInput["aspectRatio"])
 	}
-	if _, exists := layerInput["selectionRegions"]; exists {
-		t.Fatalf("new conversation leaked selectionRegions: %#v", layerInput)
+	if _, exists := layerInput["multiRegionEdits"]; exists {
+		t.Fatalf("layer edit leaked multiRegionEdits: %#v", layerInput)
 	}
-	edits, _ := layerInput["multiRegionEdits"].([]map[string]any)
-	if len(edits) != 1 || edits[0]["prompt"] != "改鞋子" {
-		t.Fatalf("new layer multiRegionEdits = %#v", layerInput["multiRegionEdits"])
-	}
-	regions, _ := edits[0]["regions"].([]map[string]any)
+	regions, _ := layerInput["selectionRegions"].([]map[string]any)
 	if len(regions) != 1 {
-		t.Fatalf("new layer regions = %#v", edits[0]["regions"])
-	}
-	if !slices.Equal(edits[0]["referenceAssets"].([]string), []string{"metadata-2"}) {
-		t.Fatalf("new layer referenceAssets = %#v", edits[0]["referenceAssets"])
+		t.Fatalf("selectionRegions = %#v", layerInput["selectionRegions"])
 	}
 	mediaGenInput = withoutRatio["mediaGenInput"].(map[string]any)
 	imageToImage = mediaGenInput["imageToImage"].(map[string]any)
@@ -1030,8 +1021,10 @@ func TestBuildImageEditPayloadMatchesCapturedMultiRegionProtocol(t *testing.T) {
 	}
 }
 
-func TestBuildImageEditPayloadWrapsSharedPromptRegionsAsMultiRegionEdits(t *testing.T) {
+func TestBuildImageEditPayloadMatchesCapturedLayerContinuationProtocol(t *testing.T) {
 	asset := "0c04c8a7-6416-4635-9688-5c455a43dfe7"
+	conversationID := "9aebbd8b-8ab3-42ac-8238-3ba9b9f1e1e6"
+	parentResponseID := "512f92b8-cff5-4b5a-a3c7-4f6eeea76aff"
 	payload := buildImageEditPayload(imageEditPayloadOptions{
 		Prompt: "移除此图层",
 		Assets: []string{asset},
@@ -1040,29 +1033,40 @@ func TestBuildImageEditPayloadWrapsSharedPromptRegionsAsMultiRegionEdits(t *test
 			{Points: []float64{0.67724609375, 0.83447265625, 0.68017578125, 0.83544921875, 0.67724609375, 0.84228515625}},
 			{Points: []float64{0.57666015625, 0.72021484375, 0.57763671875, 0.72021484375, 0.57861328125, 0.72021484375}},
 		},
+		ParentResponseID: parentResponseID,
 	})
-	if len(payload) != 8 || payload["modelName"] != "imagine-image-edit" || payload["message"] != "移除此图层" ||
-		payload["kind"] != "CONVERSATION_KIND_IMAGINE" || payload["enableImageStreaming"] != true ||
+	if len(payload) != 7 || payload["modelName"] != "imagine-image-edit" || payload["message"] != "移除此图层" ||
+		payload["parentResponseId"] != parentResponseID || payload["enableImageStreaming"] != true ||
 		payload["enableSideBySide"] != true || payload["sendFinalMetadata"] != true {
 		t.Fatalf("payload = %#v", payload)
 	}
-	if _, exists := payload["parentResponseId"]; exists {
-		t.Fatalf("parentResponseId leaked: %#v", payload)
+	for _, field := range []string{"kind", "responseMetadata"} {
+		if _, exists := payload[field]; exists {
+			t.Fatalf("continuation leaked %q: %#v", field, payload)
+		}
 	}
 	imageToImage := payload["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
 	if imageToImage["prompt"] != "移除此图层" || !slices.Equal(imageToImage["inputAssets"].([]string), []string{asset}) {
 		t.Fatalf("imageToImage = %#v", imageToImage)
 	}
-	if _, exists := imageToImage["selectionRegions"]; exists {
-		t.Fatalf("selectionRegions leaked: %#v", imageToImage)
+	if _, exists := imageToImage["multiRegionEdits"]; exists {
+		t.Fatalf("continuation leaked multiRegionEdits: %#v", imageToImage)
 	}
-	edits, _ := imageToImage["multiRegionEdits"].([]map[string]any)
-	if len(edits) != 1 || edits[0]["prompt"] != "移除此图层" {
-		t.Fatalf("multiRegionEdits = %#v", imageToImage["multiRegionEdits"])
-	}
-	regions, _ := edits[0]["regions"].([]map[string]any)
+	regions, _ := imageToImage["selectionRegions"].([]map[string]any)
 	if len(regions) != 3 {
-		t.Fatalf("regions = %#v", edits[0]["regions"])
+		t.Fatalf("selectionRegions = %#v", imageToImage["selectionRegions"])
+	}
+	if got := imageEditEndpoint("https://grok.com", conversationID); got != "https://grok.com/rest/app-chat/conversations/"+conversationID+"/responses" {
+		t.Fatalf("endpoint = %q", got)
+	}
+	if got := imageEditReferer("https://grok.com", asset, conversationID); got != "https://grok.com/imagine/post/"+asset+"?conversation="+conversationID {
+		t.Fatalf("referer = %q", got)
+	}
+	if got := imageEditEndpoint("https://grok.com", ""); got != "https://grok.com/rest/app-chat/conversations/new" {
+		t.Fatalf("new endpoint = %q", got)
+	}
+	if got := imageEditReferer("https://grok.com", asset, ""); got != "https://grok.com/imagine/post/"+asset+"?scope=asset" {
+		t.Fatalf("asset referer = %q", got)
 	}
 }
 

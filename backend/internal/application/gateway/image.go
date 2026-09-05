@@ -59,6 +59,8 @@ type ImageEditInput struct {
 	PartialImages    int
 	SelectionRegions []provider.ImageSelectionRegion
 	RegionEdits      []provider.ImageRegionEdit
+	ConversationID   string
+	ParentResponseID string
 	Method           string
 	Path             string
 	Headers          map[string][]string
@@ -121,6 +123,7 @@ func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result,
 			Resolution: input.Resolution, Quality: input.Quality, ResponseFormat: input.ResponseFormat,
 			Streaming: input.Streaming, PartialImages: input.PartialImages,
 			SelectionRegions: selectionRegions, RegionEdits: regionEdits,
+			ConversationID: input.ConversationID, ParentResponseID: input.ParentResponseID,
 		})
 	}, input.Streaming, input.Resolution, input.Quality, input.Count, len(input.ImageURLs), input.Method, input.Path, input.Headers)
 }

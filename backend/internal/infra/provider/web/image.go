@@ -342,7 +342,7 @@ func (a *Adapter) generateLiteImage(ctx context.Context, request provider.ImageG
 		}
 		urls = append(urls, value)
 	}
-	response, err := a.imageResponse(ctx, request.Credential, imagineImagesFromURLs(urls), count, format)
+	response, err := a.imageResponse(ctx, request.Credential, imagineImagesFromURLs(urls), count, format, "", "")
 	if response != nil {
 		response.QuotaUnits = count
 	}
@@ -764,7 +764,7 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 		}
 		images[index].Segmentation = segmentation
 	}
-	result, err := a.imageResponse(ctx, request.Credential, images, count, format)
+	result, err := a.imageResponse(ctx, request.Credential, images, count, format, "", "")
 	if result != nil {
 		result.QuotaUnits = count
 	}
@@ -791,6 +791,9 @@ func (a *Adapter) EditImage(ctx context.Context, request provider.ImageEditReque
 	}
 	if (len(request.SelectionRegions) > 0 || len(request.RegionEdits) > 0) && request.Streaming {
 		return invalidImageRequest("分段编辑暂不支持流式图片编辑")
+	}
+	if (strings.TrimSpace(request.ConversationID) == "") != (strings.TrimSpace(request.ParentResponseID) == "") {
+		return invalidImageRequest("conversation_id 与 parent_response_id 必须同时提供")
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		response, err := a.editImageAttempt(ctx, request)
@@ -886,18 +889,27 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		}
 		assets = append(assets, uploaded.MetadataID)
 	}
+	conversationID := strings.TrimSpace(request.ConversationID)
+	parentResponseID := strings.TrimSpace(request.ParentResponseID)
 	payload := buildImageEditPayload(imageEditPayloadOptions{
-		Prompt:      request.Prompt,
-		Assets:      assets,
-		AspectRatio: ratio,
-		Regions:     request.SelectionRegions,
-		Edits:       request.RegionEdits,
+		Prompt:           request.Prompt,
+		Assets:           assets,
+		AspectRatio:      ratio,
+		Regions:          request.SelectionRegions,
+		Edits:            request.RegionEdits,
+		ParentResponseID: parentResponseID,
 	})
-	referer := cfg.BaseURL + "/imagine"
-	if len(assets) > 0 && (len(request.SelectionRegions) > 0 || len(request.RegionEdits) > 0) {
-		referer = cfg.BaseURL + "/imagine/post/" + url.PathEscape(assets[0]) + "?scope=asset"
+	assetID := ""
+	if len(assets) > 0 {
+		assetID = assets[0]
 	}
-	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, referer)
+	response, err := a.postJSONWithReferer(
+		ctx, cfg, lease, token,
+		imageEditEndpoint(cfg.BaseURL, conversationID),
+		payload,
+		time.Duration(cfg.ImageTimeoutSeconds)*time.Second,
+		imageEditReferer(cfg.BaseURL, assetID, conversationID),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -944,7 +956,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		}
 		editedImages[index].Segmentation = segmentation
 	}
-	result, err := a.imageResponse(ctx, request.Credential, editedImages, 1, format)
+	result, err := a.imageResponse(ctx, request.Credential, editedImages, 1, format, parsed.ConversationID, parsed.ResponseID)
 	if result != nil {
 		result.QuotaUnits = 1
 	}
@@ -952,11 +964,12 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 }
 
 type imageEditPayloadOptions struct {
-	Prompt      string
-	Assets      []string
-	AspectRatio string
-	Regions     []provider.ImageSelectionRegion
-	Edits       []provider.ImageRegionEdit
+	Prompt           string
+	Assets           []string
+	AspectRatio      string
+	Regions          []provider.ImageSelectionRegion
+	Edits            []provider.ImageRegionEdit
+	ParentResponseID string
 }
 
 func buildImageEditPayload(options imageEditPayloadOptions) map[string]any {
@@ -971,21 +984,10 @@ func buildImageEditPayload(options imageEditPayloadOptions) map[string]any {
 	if options.AspectRatio != "" {
 		imageToImage["aspectRatio"] = options.AspectRatio
 	}
-	edits := options.Edits
-	if len(edits) == 0 && len(options.Regions) > 0 {
-		refs := make([]int, 0, max(0, len(options.Assets)-1))
-		for index := 1; index < len(options.Assets); index++ {
-			refs = append(refs, index)
-		}
-		edits = []provider.ImageRegionEdit{{
-			Regions:          options.Regions,
-			Prompt:           prompt,
-			ReferenceIndexes: refs,
-		}}
-	}
-	if len(edits) > 0 {
-		items := make([]map[string]any, 0, len(edits))
-		for _, edit := range edits {
+	switch {
+	case len(options.Edits) > 0:
+		items := make([]map[string]any, 0, len(options.Edits))
+		for _, edit := range options.Edits {
 			item := map[string]any{
 				"regions": selectionRegionPayloads(edit.Regions),
 				"prompt":  edit.Prompt,
@@ -996,13 +998,18 @@ func buildImageEditPayload(options imageEditPayloadOptions) map[string]any {
 			items = append(items, item)
 		}
 		imageToImage["multiRegionEdits"] = items
+	case len(options.Regions) > 0:
+		imageToImage["selectionRegions"] = selectionRegionPayloads(options.Regions)
 	}
 	payload := map[string]any{
 		"modelName": "imagine-image-edit", "message": prompt,
 		"enableImageStreaming": true, "enableSideBySide": true, "sendFinalMetadata": true,
 		"mediaGenInput": map[string]any{"imageToImage": imageToImage},
 	}
-	if len(edits) > 0 {
+	if value := strings.TrimSpace(options.ParentResponseID); value != "" {
+		payload["parentResponseId"] = value
+	}
+	if len(options.Edits) > 0 {
 		payload["responseMetadata"] = map[string]any{
 			"modelConfigOverride": map[string]any{
 				"modelMap": map[string]any{"imageEditModel": "imagine"},
@@ -1011,6 +1018,25 @@ func buildImageEditPayload(options imageEditPayloadOptions) map[string]any {
 		payload["kind"] = "CONVERSATION_KIND_IMAGINE"
 	}
 	return payload
+}
+
+func imageEditEndpoint(baseURL, conversationID string) string {
+	if value := strings.TrimSpace(conversationID); value != "" {
+		return strings.TrimRight(baseURL, "/") + "/rest/app-chat/conversations/" + url.PathEscape(value) + "/responses"
+	}
+	return strings.TrimRight(baseURL, "/") + "/rest/app-chat/conversations/new"
+}
+
+func imageEditReferer(baseURL, assetID, conversationID string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if strings.TrimSpace(assetID) == "" {
+		return baseURL + "/imagine"
+	}
+	post := baseURL + "/imagine/post/" + url.PathEscape(assetID)
+	if value := strings.TrimSpace(conversationID); value != "" {
+		return post + "?conversation=" + url.QueryEscape(value)
+	}
+	return post + "?scope=asset"
 }
 
 func joinImageRegionEditPrompts(edits []provider.ImageRegionEdit) string {
@@ -1786,7 +1812,7 @@ func imagineAssetIDFromURL(rawURL string) string {
 	return ""
 }
 
-func (a *Adapter) imageResponse(ctx context.Context, credential account.Credential, images []imagineImageValue, count int, format string) (*provider.Response, error) {
+func (a *Adapter) imageResponse(ctx context.Context, credential account.Credential, images []imagineImageValue, count int, format, conversationID, parentResponseID string) (*provider.Response, error) {
 	data := make([]any, 0, min(count, len(images)))
 	for index := 0; index < count && index < len(images); index++ {
 		item, err := a.imageDataItem(ctx, credential, images[index], format)
@@ -1798,6 +1824,12 @@ func (a *Adapter) imageResponse(ctx context.Context, credential account.Credenti
 		}
 		if len(images[index].Segmentation) > 0 {
 			item["segmentation"] = images[index].Segmentation
+		}
+		if value := strings.TrimSpace(conversationID); value != "" {
+			item["conversation_id"] = value
+		}
+		if value := strings.TrimSpace(parentResponseID); value != "" {
+			item["parent_response_id"] = value
 		}
 		data = append(data, item)
 	}

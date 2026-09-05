@@ -588,6 +588,8 @@ type ImageEditRequest struct {
 	PartialImages    int
 	SelectionRegions []ImageSelectionRegion
 	RegionEdits      []ImageRegionEdit
+	ConversationID   string
+	ParentResponseID string
 }
 
 type ImageLayerRequest struct {
