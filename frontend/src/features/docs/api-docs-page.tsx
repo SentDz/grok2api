@@ -117,8 +117,6 @@ const endpoints: Record<string, EndpointDefinition> = {
       { name: "response_format", descriptionKey: "docs.reference.fieldResponseFormat" },
       { name: "selection_regions", descriptionKey: "docs.reference.fieldSelectionRegions" },
       { name: "multi_region_edits", descriptionKey: "docs.reference.fieldMultiRegionEdits" },
-      { name: "conversation_id", descriptionKey: "docs.reference.fieldImageConversationId" },
-      { name: "parent_response_id", descriptionKey: "docs.reference.fieldImageParentResponseId" },
     ],
     noteKeys: ["docs.reference.noteEditJSON", "docs.reference.noteEditSources", "docs.reference.noteImageSegmentEdit", "docs.reference.noteImageStorage"],
     request: (model) => ({ model, prompt: "Change the chair to black", image: { url: "https://example.com/chair.png" }, n: 1, response_format: "url" }),

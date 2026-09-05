@@ -180,8 +180,6 @@ type imageEditJSONRequest struct {
 	PartialImages    *int                           `json:"partial_images"`
 	SelectionRegions []imageEditJSONSelectionRegion `json:"selection_regions"`
 	MultiRegionEdits []imageEditJSONRegionEdit      `json:"multi_region_edits"`
-	ConversationID   string                         `json:"conversation_id"`
-	ParentResponseID string                         `json:"parent_response_id"`
 }
 
 type videoGenerationImage struct {
@@ -771,12 +769,6 @@ func (h *Handler) editImage(c *gin.Context) {
 		writeOpenAIError(c, http.StatusBadRequest, "unsupported_parameter", "分段编辑暂不支持 stream=true")
 		return
 	}
-	conversationID := strings.TrimSpace(request.ConversationID)
-	parentResponseID := strings.TrimSpace(request.ParentResponseID)
-	if (conversationID == "") != (parentResponseID == "") {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "conversation_id 与 parent_response_id 必须同时提供")
-		return
-	}
 	quality := strings.ToLower(strings.TrimSpace(request.Quality))
 	if quality != "" && quality != "low" && quality != "medium" {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "quality 必须是 low 或 medium")
@@ -792,7 +784,6 @@ func (h *Handler) editImage(c *gin.Context) {
 		Resolution: resolution, Quality: quality, ResponseFormat: request.ResponseFormat,
 		Streaming: request.Stream, PartialImages: partialImages,
 		SelectionRegions: selectionRegions, RegionEdits: regionEdits,
-		ConversationID: conversationID, ParentResponseID: parentResponseID,
 		Method: c.Request.Method, Path: c.Request.URL.Path, Headers: c.Request.Header.Clone(),
 	})
 	if err != nil {
