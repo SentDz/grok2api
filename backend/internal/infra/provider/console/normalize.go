@@ -11,6 +11,7 @@ import (
 
 	auditdomain "github.com/chenyme/grok2api/backend/internal/domain/audit"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
+	"github.com/chenyme/grok2api/backend/internal/infra/provider/cli"
 )
 
 var (
@@ -344,6 +345,14 @@ func normalizeConsoleTools(payload map[string]any, disallowsClientTools bool) co
 			clean := map[string]any{"type": "function", "name": strings.TrimSpace(name)}
 			for _, field := range []string{"description", "parameters", "strict"} {
 				if fieldValue, exists := tool[field]; exists {
+					if field == "parameters" {
+						normalized, _, err := cli.NormalizeBuildFunctionParametersRoot(fieldValue, "tools.parameters", strings.TrimSpace(name))
+						if err != nil {
+							return false, err
+						}
+						clean[field] = normalized
+						continue
+					}
 					clean[field] = fieldValue
 				}
 			}
