@@ -152,10 +152,8 @@ export async function editImage(input: {
       resolution: "1k",
       response_format: "url",
       ...(input.selectionRegions?.length ? { selection_regions: input.selectionRegions } : {}),
-      ...(input.conversationId && input.parentResponseId ? {
-        conversation_id: input.conversationId,
-        parent_response_id: input.parentResponseId,
-      } : {}),
+      ...(input.conversationId ? { conversation_id: input.conversationId } : {}),
+      ...(input.parentResponseId ? { parent_response_id: input.parentResponseId } : {}),
     },
     signal: input.signal,
   });

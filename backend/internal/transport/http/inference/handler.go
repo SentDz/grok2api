@@ -773,8 +773,8 @@ func (h *Handler) editImage(c *gin.Context) {
 	}
 	conversationID := strings.TrimSpace(request.ConversationID)
 	parentResponseID := strings.TrimSpace(request.ParentResponseID)
-	if (conversationID == "") != (parentResponseID == "") {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "conversation_id 与 parent_response_id 必须同时提供")
+	if parentResponseID != "" && conversationID == "" {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "parent_response_id 必须与 conversation_id 一起提供")
 		return
 	}
 	quality := strings.ToLower(strings.TrimSpace(request.Quality))

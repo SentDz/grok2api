@@ -792,8 +792,8 @@ func (a *Adapter) EditImage(ctx context.Context, request provider.ImageEditReque
 	if (len(request.SelectionRegions) > 0 || len(request.RegionEdits) > 0) && request.Streaming {
 		return invalidImageRequest("分段编辑暂不支持流式图片编辑")
 	}
-	if (strings.TrimSpace(request.ConversationID) == "") != (strings.TrimSpace(request.ParentResponseID) == "") {
-		return invalidImageRequest("conversation_id 与 parent_response_id 必须同时提供")
+	if strings.TrimSpace(request.ParentResponseID) != "" && strings.TrimSpace(request.ConversationID) == "" {
+		return invalidImageRequest("parent_response_id 必须与 conversation_id 一起提供")
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		response, err := a.editImageAttempt(ctx, request)
@@ -897,6 +897,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		AspectRatio:      ratio,
 		Regions:          request.SelectionRegions,
 		Edits:            request.RegionEdits,
+		ConversationID:   conversationID,
 		ParentResponseID: parentResponseID,
 	})
 	assetID := ""
@@ -969,6 +970,7 @@ type imageEditPayloadOptions struct {
 	AspectRatio      string
 	Regions          []provider.ImageSelectionRegion
 	Edits            []provider.ImageRegionEdit
+	ConversationID   string
 	ParentResponseID string
 }
 
@@ -1009,7 +1011,7 @@ func buildImageEditPayload(options imageEditPayloadOptions) map[string]any {
 	if value := strings.TrimSpace(options.ParentResponseID); value != "" {
 		payload["parentResponseId"] = value
 	}
-	if len(options.Edits) > 0 {
+	if len(options.Edits) > 0 && strings.TrimSpace(options.ConversationID) == "" {
 		payload["responseMetadata"] = map[string]any{
 			"modelConfigOverride": map[string]any{
 				"modelMap": map[string]any{"imageEditModel": "imagine"},

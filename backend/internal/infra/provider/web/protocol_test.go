@@ -1021,6 +1021,41 @@ func TestBuildImageEditPayloadMatchesCapturedMultiRegionProtocol(t *testing.T) {
 	}
 }
 
+func TestBuildImageEditPayloadMatchesCapturedMultiRegionContinuationProtocol(t *testing.T) {
+	conversationID := "8420e1c5-b027-44b1-b498-c2d10e75a73c"
+	asset := "2c17fae4-1feb-4ff4-ba91-f58f93e9e5ab"
+	payload := buildImageEditPayload(imageEditPayloadOptions{
+		Assets:         []string{asset},
+		ConversationID: conversationID,
+		Edits: []provider.ImageRegionEdit{
+			{Regions: []provider.ImageSelectionRegion{{Points: []float64{0.44, 0.23, 0.65, 0.23, 0.65, 0.59}}}, Prompt: "黑猫"},
+			{Regions: []provider.ImageSelectionRegion{{Points: []float64{0.28, 0.26, 0.43, 0.26, 0.43, 0.47}}}, Prompt: "移除此图层"},
+		},
+	})
+	if len(payload) != 6 || payload["message"] != "黑猫; 移除此图层" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	for _, field := range []string{"kind", "responseMetadata", "parentResponseId"} {
+		if _, exists := payload[field]; exists {
+			t.Fatalf("captured continuation leaked %q: %#v", field, payload)
+		}
+	}
+	imageToImage := payload["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
+	if !slices.Equal(imageToImage["inputAssets"].([]string), []string{asset}) {
+		t.Fatalf("inputAssets = %#v", imageToImage["inputAssets"])
+	}
+	edits, _ := imageToImage["multiRegionEdits"].([]map[string]any)
+	if len(edits) != 2 || edits[0]["prompt"] != "黑猫" || edits[1]["prompt"] != "移除此图层" {
+		t.Fatalf("multiRegionEdits = %#v", imageToImage["multiRegionEdits"])
+	}
+	if got := imageEditEndpoint("https://grok.com", conversationID); got != "https://grok.com/rest/app-chat/conversations/"+conversationID+"/responses" {
+		t.Fatalf("endpoint = %q", got)
+	}
+	if got := imageEditReferer("https://grok.com", asset, conversationID); got != "https://grok.com/imagine/post/"+asset+"?conversation="+conversationID {
+		t.Fatalf("referer = %q", got)
+	}
+}
+
 func TestBuildImageEditPayloadMatchesCapturedLayerContinuationProtocol(t *testing.T) {
 	asset := "0c04c8a7-6416-4635-9688-5c455a43dfe7"
 	conversationID := "9aebbd8b-8ab3-42ac-8238-3ba9b9f1e1e6"

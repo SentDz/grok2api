@@ -753,6 +753,22 @@ func TestImageEditAcceptsOfficialJSONShape(t *testing.T) {
 		t.Fatalf("valid continuation status=%d body=%s", validContinuationRecorder.Code, validContinuationRecorder.Body.String())
 	}
 
+	validConversationOnly := httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(`{
+		"model":"grok-imagine-image-2.0-web","resolution":"1k",
+		"image":{"url":"https://example.com/input.png"},
+		"conversation_id":"8420e1c5-b027-44b1-b498-c2d10e75a73c",
+		"multi_region_edits":[
+			{"regions":[{"outer":{"points":[0.1,0.1,0.2,0.1,0.2,0.2,0.1,0.2]}}],"prompt":"黑猫"},
+			{"regions":[{"outer":{"points":[0.3,0.3,0.4,0.3,0.4,0.4,0.3,0.4]}}],"prompt":"移除此图层"}
+		]
+	}`))
+	validConversationOnly.Header.Set("Content-Type", "application/json")
+	validConversationOnlyRecorder := httptest.NewRecorder()
+	router.ServeHTTP(validConversationOnlyRecorder, validConversationOnly)
+	if validConversationOnlyRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("valid conversation-only status=%d body=%s", validConversationOnlyRecorder.Code, validConversationOnlyRecorder.Body.String())
+	}
+
 	invalidResolution := httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(`{
 		"model":"grok-imagine-image-edit","prompt":"test","resolution":"4k",
 		"image":{"url":"https://example.com/input.png"}
@@ -811,7 +827,6 @@ func TestImageEditAcceptsOfficialJSONShape(t *testing.T) {
 		{name: "selection does not support stream", body: `{"model":"grok-imagine-image-edit","prompt":"test","stream":true,"image":{"url":"https://example.com/input.png"},"selection_regions":[{"outer":{"points":[0.1,0.1,0.9,0.1,0.9,0.9]}}]}`},
 		{name: "selection and multi region edits conflict", body: `{"model":"grok-imagine-image-2.0-web","prompt":"test","image":{"url":"https://example.com/input.png"},"selection_regions":[{"outer":{"points":[0.1,0.1,0.9,0.1,0.9,0.9]}}],"multi_region_edits":[{"regions":[{"outer":{"points":[0.1,0.1,0.9,0.1,0.9,0.9]}}],"prompt":"111"}]}`},
 		{name: "multi region edit missing prompt", body: `{"model":"grok-imagine-image-2.0-web","image":{"url":"https://example.com/input.png"},"multi_region_edits":[{"regions":[{"outer":{"points":[0.1,0.1,0.9,0.1,0.9,0.9]}}]}]}`},
-		{name: "conversation id without parent response", body: `{"model":"grok-imagine-image-2.0-web","prompt":"test","image":{"url":"https://example.com/input.png"},"conversation_id":"conv-1"}`},
 		{name: "parent response without conversation id", body: `{"model":"grok-imagine-image-2.0-web","prompt":"test","image":{"url":"https://example.com/input.png"},"parent_response_id":"resp-1"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
