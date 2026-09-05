@@ -58,6 +58,9 @@ type ImageEditInput struct {
 	Streaming        bool
 	PartialImages    int
 	SelectionRegions []provider.ImageSelectionRegion
+	RegionEdits      []provider.ImageRegionEdit
+	ConversationID   string
+	ParentResponseID string
 	Method           string
 	Path             string
 	Headers          map[string][]string
@@ -105,6 +108,7 @@ func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result,
 		return nil, err
 	}
 	selectionRegions := cloneImageSelectionRegions(input.SelectionRegions)
+	regionEdits := cloneImageRegionEdits(input.RegionEdits)
 	return s.executeImage(ctx, input.RequestID, input.ClientKey, input.PublicModel, audit.OperationImageEdit, modeldomain.CapabilityImageEdit, func(providerValue accountdomain.Provider) bool {
 		_, ok := s.providers.ImageEdit(providerValue)
 		return ok
@@ -118,7 +122,8 @@ func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result,
 			ImageURLs: imageURLs, Count: input.Count, Size: input.Size, AspectRatio: input.AspectRatio,
 			Resolution: input.Resolution, Quality: input.Quality, ResponseFormat: input.ResponseFormat,
 			Streaming: input.Streaming, PartialImages: input.PartialImages,
-			SelectionRegions: selectionRegions,
+			SelectionRegions: selectionRegions, RegionEdits: regionEdits,
+			ConversationID: input.ConversationID, ParentResponseID: input.ParentResponseID,
 		})
 	}, input.Streaming, input.Resolution, input.Quality, input.Count, len(input.ImageURLs), input.Method, input.Path, input.Headers)
 }
@@ -176,6 +181,16 @@ func cloneImageSelectionRegions(values []provider.ImageSelectionRegion) []provid
 	result := make([]provider.ImageSelectionRegion, len(values))
 	for index, value := range values {
 		result[index].Points = append([]float64(nil), value.Points...)
+	}
+	return result
+}
+
+func cloneImageRegionEdits(values []provider.ImageRegionEdit) []provider.ImageRegionEdit {
+	result := make([]provider.ImageRegionEdit, len(values))
+	for index, value := range values {
+		result[index].Prompt = value.Prompt
+		result[index].ReferenceIndexes = append([]int(nil), value.ReferenceIndexes...)
+		result[index].Regions = cloneImageSelectionRegions(value.Regions)
 	}
 	return result
 }

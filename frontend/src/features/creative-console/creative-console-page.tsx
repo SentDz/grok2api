@@ -996,6 +996,8 @@ function ImagePanel({ apiKey, model, modelOptions, onModelChange }: CreativePane
       prompt: editPrompt.trim(),
       imageURL: editingImage.url,
       selectionRegions: segment ? [{ outer: { points: segmentSelectionPoints(segment, segments, imageDimensions) } }] : undefined,
+      conversationId: editingImage.conversationId,
+      parentResponseId: editingImage.parentResponseId,
     });
   }
 

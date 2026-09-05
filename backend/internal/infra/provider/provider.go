@@ -566,6 +566,12 @@ type ImageSelectionRegion struct {
 	Points []float64
 }
 
+type ImageRegionEdit struct {
+	Regions          []ImageSelectionRegion
+	Prompt           string
+	ReferenceIndexes []int
+}
+
 type ImageEditRequest struct {
 	Credential       account.Credential
 	PublicModel      string
@@ -581,6 +587,9 @@ type ImageEditRequest struct {
 	Streaming        bool
 	PartialImages    int
 	SelectionRegions []ImageSelectionRegion
+	RegionEdits      []ImageRegionEdit
+	ConversationID   string
+	ParentResponseID string
 }
 
 type ImageLayerRequest struct {

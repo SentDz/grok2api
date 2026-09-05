@@ -1665,6 +1665,19 @@ func TestConsoleImageEditForwardsMultipleImages(t *testing.T) {
 	if !bytes.Contains(body, []byte(`"b64_json":"aW1hZ2U="`)) {
 		t.Fatalf("b64 response = %s", body)
 	}
+
+	response, err = adapter.EditImage(context.Background(), provider.ImageEditRequest{
+		Credential: credential, Model: "grok-imagine-image", Prompt: "merge", Count: 1,
+		ImageURLs:        []string{"https://example.com/a.png"},
+		SelectionRegions: []provider.ImageSelectionRegion{{Points: []float64{0.1, 0.1, 0.9, 0.1, 0.9, 0.9}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("segmented edit response = %#v", response)
+	}
 }
 
 func TestConsoleImage20EditAcceptsFourteenAndRejectsFifteenImages(t *testing.T) {

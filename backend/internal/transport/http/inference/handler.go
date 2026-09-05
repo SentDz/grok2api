@@ -158,6 +158,12 @@ type imageEditJSONSelectionRegion struct {
 	} `json:"outer"`
 }
 
+type imageEditJSONRegionEdit struct {
+	Regions         []imageEditJSONSelectionRegion `json:"regions"`
+	Prompt          string                         `json:"prompt"`
+	ReferenceImages []imageEditJSONImage           `json:"reference_images"`
+}
+
 type imageEditJSONRequest struct {
 	Model            string                         `json:"model"`
 	Prompt           string                         `json:"prompt"`
@@ -173,6 +179,9 @@ type imageEditJSONRequest struct {
 	Stream           bool                           `json:"stream"`
 	PartialImages    *int                           `json:"partial_images"`
 	SelectionRegions []imageEditJSONSelectionRegion `json:"selection_regions"`
+	MultiRegionEdits []imageEditJSONRegionEdit      `json:"multi_region_edits"`
+	ConversationID   string                         `json:"conversation_id"`
+	ParentResponseID string                         `json:"parent_response_id"`
 }
 
 type videoGenerationImage struct {
@@ -637,7 +646,7 @@ func (h *Handler) editImage(c *gin.Context) {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "每个 image 都必须提供有效 url")
 		return
 	}
-	if model == "" || prompt == "" {
+	if model == "" {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "图片编辑缺少有效 model 或 prompt")
 		return
 	}
@@ -675,31 +684,97 @@ func (h *Handler) editImage(c *gin.Context) {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "resolution 必须是 1k 或 2k")
 		return
 	}
+	if len(request.SelectionRegions) > 0 && len(request.MultiRegionEdits) > 0 {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions 与 multi_region_edits 不能同时使用")
+		return
+	}
 	selectionRegions := make([]provider.ImageSelectionRegion, 0, len(request.SelectionRegions))
-	if len(request.SelectionRegions) > 1 {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions 当前仅支持一个选区")
+	if len(request.SelectionRegions) > maxImageSelectionRegions {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions 最多支持 8 个选区")
 		return
 	}
 	for _, region := range request.SelectionRegions {
-		points := region.Outer.Points
-		if len(points) < 6 || len(points) > 128 || len(points)%2 != 0 {
-			writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions.outer.points 必须包含 3 到 64 个坐标点")
+		parsed, message := parseImageSelectionRegion(region)
+		if message != "" {
+			writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", message)
 			return
 		}
-		for _, point := range points {
-			if math.IsNaN(point) || math.IsInf(point, 0) || point < 0 || point > 1 {
-				writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions 坐标必须在 0 到 1 之间")
-				return
-			}
-		}
-		selectionRegions = append(selectionRegions, provider.ImageSelectionRegion{Points: append([]float64(nil), points...)})
+		selectionRegions = append(selectionRegions, parsed)
 	}
-	if len(selectionRegions) > 0 && request.Stream {
-		writeOpenAIError(c, http.StatusBadRequest, "unsupported_parameter", "selection_regions 暂不支持 stream=true")
+	regionEdits := make([]provider.ImageRegionEdit, 0, len(request.MultiRegionEdits))
+	if len(request.MultiRegionEdits) > maxImageRegionEdits {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "multi_region_edits 最多支持 8 组分段编辑")
 		return
 	}
-	if len(selectionRegions) > 0 && len(imageURLs) != 1 {
-		writeOpenAIError(c, http.StatusBadRequest, "unsupported_parameter", "蒙版编辑仅支持一张待编辑图片，不支持额外参考图")
+	indexOf := make(map[string]int, len(imageURLs))
+	for index, value := range imageURLs {
+		indexOf[value] = index
+	}
+	for _, edit := range request.MultiRegionEdits {
+		if len(edit.Regions) == 0 || len(edit.Regions) > maxImageSelectionRegions {
+			writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "multi_region_edits.regions 必须包含 1 到 8 个选区")
+			return
+		}
+		regions := make([]provider.ImageSelectionRegion, 0, len(edit.Regions))
+		for _, region := range edit.Regions {
+			parsed, message := parseImageSelectionRegion(region)
+			if message != "" {
+				writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", message)
+				return
+			}
+			regions = append(regions, parsed)
+		}
+		editPrompt := strings.TrimSpace(edit.Prompt)
+		if editPrompt == "" {
+			editPrompt = prompt
+		}
+		if editPrompt == "" {
+			writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "multi_region_edits.prompt 不能为空")
+			return
+		}
+		refs := make([]int, 0, len(edit.ReferenceImages))
+		for _, image := range edit.ReferenceImages {
+			next, index, message := appendImageEditURL(imageURLs, indexOf, image)
+			if message != "" {
+				writeOpenAIError(c, http.StatusBadRequest, "invalid_request", message)
+				return
+			}
+			imageURLs = next
+			if index > 0 {
+				refs = append(refs, index)
+			}
+		}
+		regionEdits = append(regionEdits, provider.ImageRegionEdit{
+			Regions:          regions,
+			Prompt:           editPrompt,
+			ReferenceIndexes: refs,
+		})
+	}
+	if len(imageURLs) > maxImages {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", fmt.Sprintf("image 或 images 数量必须在 1 到 %d 之间", maxImages))
+		return
+	}
+	if prompt == "" {
+		prompts := make([]string, 0, len(regionEdits))
+		for _, edit := range regionEdits {
+			if value := strings.TrimSpace(edit.Prompt); value != "" {
+				prompts = append(prompts, value)
+			}
+		}
+		prompt = strings.Join(prompts, "; ")
+	}
+	if prompt == "" {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "图片编辑缺少有效 model 或 prompt")
+		return
+	}
+	if (len(selectionRegions) > 0 || len(regionEdits) > 0) && request.Stream {
+		writeOpenAIError(c, http.StatusBadRequest, "unsupported_parameter", "分段编辑暂不支持 stream=true")
+		return
+	}
+	conversationID := strings.TrimSpace(request.ConversationID)
+	parentResponseID := strings.TrimSpace(request.ParentResponseID)
+	if (conversationID == "") != (parentResponseID == "") {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "conversation_id 与 parent_response_id 必须同时提供")
 		return
 	}
 	quality := strings.ToLower(strings.TrimSpace(request.Quality))
@@ -715,7 +790,9 @@ func (h *Handler) editImage(c *gin.Context) {
 		RequestID: requestID, ClientKey: clientKey, PublicModel: model, Prompt: prompt,
 		ImageURLs: imageURLs, Count: count, Size: size, AspectRatio: aspectRatio,
 		Resolution: resolution, Quality: quality, ResponseFormat: request.ResponseFormat,
-		Streaming: request.Stream, PartialImages: partialImages, SelectionRegions: selectionRegions,
+		Streaming: request.Stream, PartialImages: partialImages,
+		SelectionRegions: selectionRegions, RegionEdits: regionEdits,
+		ConversationID: conversationID, ParentResponseID: parentResponseID,
 		Method: c.Request.Method, Path: c.Request.URL.Path, Headers: c.Request.Header.Clone(),
 	})
 	if err != nil {
@@ -1246,6 +1323,42 @@ func validImageEditSize(value string) bool {
 	default:
 		return false
 	}
+}
+
+const (
+	maxImageRegionEdits      = 8
+	maxImageSelectionRegions = 8
+	minImageSelectionCoords  = 6
+	maxImageSelectionCoords  = 4096
+)
+
+func parseImageSelectionRegion(region imageEditJSONSelectionRegion) (provider.ImageSelectionRegion, string) {
+	points := region.Outer.Points
+	if len(points) < minImageSelectionCoords || len(points) > maxImageSelectionCoords || len(points)%2 != 0 {
+		return provider.ImageSelectionRegion{}, "selection_regions.outer.points 必须包含 3 到 2048 个坐标点"
+	}
+	for _, point := range points {
+		if math.IsNaN(point) || math.IsInf(point, 0) || point < 0 || point > 1 {
+			return provider.ImageSelectionRegion{}, "selection_regions 坐标必须在 0 到 1 之间"
+		}
+	}
+	return provider.ImageSelectionRegion{Points: append([]float64(nil), points...)}, ""
+}
+
+func appendImageEditURL(imageURLs []string, indexOf map[string]int, image imageEditJSONImage) ([]string, int, string) {
+	if strings.TrimSpace(image.FileID) != "" {
+		return imageURLs, -1, "当前暂不支持 image.file_id，请使用 image.url"
+	}
+	value := strings.TrimSpace(image.URL)
+	if value == "" {
+		return imageURLs, -1, "每个 image 都必须提供有效 url"
+	}
+	if index, ok := indexOf[value]; ok {
+		return imageURLs, index, ""
+	}
+	index := len(imageURLs)
+	indexOf[value] = index
+	return append(imageURLs, value), index, ""
 }
 
 func videoGenerationResponse(job mediadomain.Job, contentURLs ...string) gin.H {

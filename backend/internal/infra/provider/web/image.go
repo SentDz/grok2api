@@ -35,6 +35,8 @@ const (
 	imagineSelfUploadSource       = "IMAGINE_SELF_UPLOAD_FILE_SOURCE"
 	directFileUploadResponseLimit = 2 << 20
 	segmentResponseLimit          = 2 << 20
+	maxImageRegionEdits           = 8
+	maxImageSelectionRegions      = 8
 )
 
 var errLiteImageReady = errors.New("Lite 图片已完成")
@@ -340,7 +342,7 @@ func (a *Adapter) generateLiteImage(ctx context.Context, request provider.ImageG
 		}
 		urls = append(urls, value)
 	}
-	response, err := a.imageResponse(ctx, request.Credential, imagineImagesFromURLs(urls), count, format)
+	response, err := a.imageResponse(ctx, request.Credential, imagineImagesFromURLs(urls), count, format, "", "")
 	if response != nil {
 		response.QuotaUnits = count
 	}
@@ -762,7 +764,7 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 		}
 		images[index].Segmentation = segmentation
 	}
-	result, err := a.imageResponse(ctx, request.Credential, images, count, format)
+	result, err := a.imageResponse(ctx, request.Credential, images, count, format, "", "")
 	if result != nil {
 		result.QuotaUnits = count
 	}
@@ -773,14 +775,25 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 // response. Reacquiring the lease is required because the failed lease keeps
 // the immutable browser-session cookies that were rejected upstream.
 func (a *Adapter) EditImage(ctx context.Context, request provider.ImageEditRequest) (*provider.Response, error) {
-	if len(request.SelectionRegions) > 1 {
-		return invalidImageRequest("selection_regions 当前仅支持一个选区")
+	if len(request.SelectionRegions) > 0 && len(request.RegionEdits) > 0 {
+		return invalidImageRequest("selection_regions 与 multi_region_edits 不能同时使用")
 	}
-	if len(request.SelectionRegions) > 0 && len(request.ImageURLs) != 1 {
-		return invalidImageRequest("蒙版编辑仅支持一张待编辑图片，不支持额外参考图")
+	if len(request.SelectionRegions) > maxImageSelectionRegions {
+		return invalidImageRequest("selection_regions 最多支持 8 个选区")
 	}
-	if len(request.SelectionRegions) > 0 && request.Streaming {
-		return invalidImageRequest("selection_regions 暂不支持流式图片编辑")
+	if len(request.RegionEdits) > maxImageRegionEdits {
+		return invalidImageRequest("multi_region_edits 最多支持 8 组分段编辑")
+	}
+	for _, edit := range request.RegionEdits {
+		if len(edit.Regions) == 0 || len(edit.Regions) > maxImageSelectionRegions {
+			return invalidImageRequest("每组分段编辑必须包含 1 到 8 个选区")
+		}
+	}
+	if (len(request.SelectionRegions) > 0 || len(request.RegionEdits) > 0) && request.Streaming {
+		return invalidImageRequest("分段编辑暂不支持流式图片编辑")
+	}
+	if (strings.TrimSpace(request.ConversationID) == "") != (strings.TrimSpace(request.ParentResponseID) == "") {
+		return invalidImageRequest("conversation_id 与 parent_response_id 必须同时提供")
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		response, err := a.editImageAttempt(ctx, request)
@@ -876,8 +889,27 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		}
 		assets = append(assets, uploaded.MetadataID)
 	}
-	payload := buildImageEditPayload(request.Prompt, assets, ratio, request.SelectionRegions)
-	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, cfg.BaseURL+"/imagine")
+	conversationID := strings.TrimSpace(request.ConversationID)
+	parentResponseID := strings.TrimSpace(request.ParentResponseID)
+	payload := buildImageEditPayload(imageEditPayloadOptions{
+		Prompt:           request.Prompt,
+		Assets:           assets,
+		AspectRatio:      ratio,
+		Regions:          request.SelectionRegions,
+		Edits:            request.RegionEdits,
+		ParentResponseID: parentResponseID,
+	})
+	assetID := ""
+	if len(assets) > 0 {
+		assetID = assets[0]
+	}
+	response, err := a.postJSONWithReferer(
+		ctx, cfg, lease, token,
+		imageEditEndpoint(cfg.BaseURL, conversationID),
+		payload,
+		time.Duration(cfg.ImageTimeoutSeconds)*time.Second,
+		imageEditReferer(cfg.BaseURL, assetID, conversationID),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -924,33 +956,126 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		}
 		editedImages[index].Segmentation = segmentation
 	}
-	result, err := a.imageResponse(ctx, request.Credential, editedImages, 1, format)
+	result, err := a.imageResponse(ctx, request.Credential, editedImages, 1, format, parsed.ConversationID, parsed.ResponseID)
 	if result != nil {
 		result.QuotaUnits = 1
 	}
 	return result, err
 }
 
-func buildImageEditPayload(prompt string, assets []string, aspectRatio string, regions []provider.ImageSelectionRegion) map[string]any {
+type imageEditPayloadOptions struct {
+	Prompt           string
+	Assets           []string
+	AspectRatio      string
+	Regions          []provider.ImageSelectionRegion
+	Edits            []provider.ImageRegionEdit
+	ParentResponseID string
+}
+
+func buildImageEditPayload(options imageEditPayloadOptions) map[string]any {
+	prompt := options.Prompt
+	if combined := joinImageRegionEditPrompts(options.Edits); combined != "" {
+		prompt = combined
+	}
 	imageToImage := map[string]any{
 		"prompt":      prompt,
-		"inputAssets": assets,
+		"inputAssets": options.Assets,
 	}
-	if aspectRatio != "" {
-		imageToImage["aspectRatio"] = aspectRatio
+	if options.AspectRatio != "" {
+		imageToImage["aspectRatio"] = options.AspectRatio
 	}
-	if len(regions) > 0 {
-		items := make([]map[string]any, 0, len(regions))
-		for _, region := range regions {
-			items = append(items, map[string]any{"outer": map[string]any{"points": append([]float64(nil), region.Points...)}})
+	switch {
+	case len(options.Edits) > 0:
+		items := make([]map[string]any, 0, len(options.Edits))
+		for _, edit := range options.Edits {
+			item := map[string]any{
+				"regions": selectionRegionPayloads(edit.Regions),
+				"prompt":  edit.Prompt,
+			}
+			if refs := regionEditReferenceAssets(options.Assets, edit.ReferenceIndexes); len(refs) > 0 {
+				item["referenceAssets"] = refs
+			}
+			items = append(items, item)
 		}
-		imageToImage["selectionRegions"] = items
+		imageToImage["multiRegionEdits"] = items
+	case len(options.Regions) > 0:
+		imageToImage["selectionRegions"] = selectionRegionPayloads(options.Regions)
 	}
-	return map[string]any{
+	payload := map[string]any{
 		"modelName": "imagine-image-edit", "message": prompt,
 		"enableImageStreaming": true, "enableSideBySide": true, "sendFinalMetadata": true,
 		"mediaGenInput": map[string]any{"imageToImage": imageToImage},
 	}
+	if value := strings.TrimSpace(options.ParentResponseID); value != "" {
+		payload["parentResponseId"] = value
+	}
+	if len(options.Edits) > 0 {
+		payload["responseMetadata"] = map[string]any{
+			"modelConfigOverride": map[string]any{
+				"modelMap": map[string]any{"imageEditModel": "imagine"},
+			},
+		}
+		payload["kind"] = "CONVERSATION_KIND_IMAGINE"
+	}
+	return payload
+}
+
+func imageEditEndpoint(baseURL, conversationID string) string {
+	if value := strings.TrimSpace(conversationID); value != "" {
+		return strings.TrimRight(baseURL, "/") + "/rest/app-chat/conversations/" + url.PathEscape(value) + "/responses"
+	}
+	return strings.TrimRight(baseURL, "/") + "/rest/app-chat/conversations/new"
+}
+
+func imageEditReferer(baseURL, assetID, conversationID string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if strings.TrimSpace(assetID) == "" {
+		return baseURL + "/imagine"
+	}
+	post := baseURL + "/imagine/post/" + url.PathEscape(assetID)
+	if value := strings.TrimSpace(conversationID); value != "" {
+		return post + "?conversation=" + url.QueryEscape(value)
+	}
+	return post + "?scope=asset"
+}
+
+func joinImageRegionEditPrompts(edits []provider.ImageRegionEdit) string {
+	prompts := make([]string, 0, len(edits))
+	for _, edit := range edits {
+		value := strings.TrimSpace(edit.Prompt)
+		if value != "" {
+			prompts = append(prompts, value)
+		}
+	}
+	return strings.Join(prompts, "; ")
+}
+
+func selectionRegionPayloads(regions []provider.ImageSelectionRegion) []map[string]any {
+	items := make([]map[string]any, 0, len(regions))
+	for _, region := range regions {
+		items = append(items, map[string]any{"outer": map[string]any{"points": append([]float64(nil), region.Points...)}})
+	}
+	return items
+}
+
+func regionEditReferenceAssets(assets []string, indexes []int) []string {
+	if len(indexes) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(indexes))
+	seen := make(map[string]struct{}, len(indexes))
+	for _, index := range indexes {
+		if index <= 0 || index >= len(assets) {
+			continue
+		}
+		asset := assets[index]
+		if _, exists := seen[asset]; exists {
+			continue
+		}
+		seen[asset] = struct{}{}
+		refs = append(refs, asset)
+	}
+	return refs
 }
 
 func resolveImageEditAspectRatio(aspectRatio, size string) (string, error) {
@@ -1687,7 +1812,7 @@ func imagineAssetIDFromURL(rawURL string) string {
 	return ""
 }
 
-func (a *Adapter) imageResponse(ctx context.Context, credential account.Credential, images []imagineImageValue, count int, format string) (*provider.Response, error) {
+func (a *Adapter) imageResponse(ctx context.Context, credential account.Credential, images []imagineImageValue, count int, format, conversationID, parentResponseID string) (*provider.Response, error) {
 	data := make([]any, 0, min(count, len(images)))
 	for index := 0; index < count && index < len(images); index++ {
 		item, err := a.imageDataItem(ctx, credential, images[index], format)
@@ -1699,6 +1824,12 @@ func (a *Adapter) imageResponse(ctx context.Context, credential account.Credenti
 		}
 		if len(images[index].Segmentation) > 0 {
 			item["segmentation"] = images[index].Segmentation
+		}
+		if value := strings.TrimSpace(conversationID); value != "" {
+			item["conversation_id"] = value
+		}
+		if value := strings.TrimSpace(parentResponseID); value != "" {
+			item["parent_response_id"] = value
 		}
 		data = append(data, item)
 	}
