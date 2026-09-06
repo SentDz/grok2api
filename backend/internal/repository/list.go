@@ -110,6 +110,15 @@ type AccountSummary struct {
 	ReauthRequired int64
 }
 
+// AccountQuotaSummary 汇总指定 Provider 单个额度模式的全部已同步账号。
+type AccountQuotaSummary struct {
+	Mode      string
+	Remaining int64
+	Total     int64
+	Accounts  int64
+	Exhausted int64
+}
+
 type ModelListFilter struct {
 	Provider    string
 	Providers   []string

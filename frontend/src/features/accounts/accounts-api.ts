@@ -153,6 +153,7 @@ export type AccountSummaryDTO = {
   providers: Record<AccountProvider, { total: number; available: number }>;
   recovery: { cooldown: number; waitingReset: number; probing: number };
   issues: { disabled: number; reauthRequired: number };
+  webQuota: Record<string, { remaining: number; total: number; accounts: number; exhausted: number }>;
 };
 
 export type DeviceSessionDTO = {
@@ -218,6 +219,7 @@ const decodeAccountSummary = createObjectDecoder<AccountSummaryDTO>("account sum
   providers: isRecordOf(hasShape({ total: isNumber, available: isNumber })),
   recovery: hasShape({ cooldown: isNumber, waitingReset: isNumber, probing: isNumber }),
   issues: hasShape({ disabled: isNumber, reauthRequired: isNumber }),
+  webQuota: isRecordOf(hasShape({ remaining: isNumber, total: isNumber, accounts: isNumber, exhausted: isNumber })),
 });
 const decodeDeviceSession = createObjectDecoder<DeviceSessionDTO>("device session", {
   sessionId: isString, userCode: isString, verificationUri: isString, verificationUriComplete: isOptional(isString),

@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ClipboardPaste, Compass, Download, ExternalLink, FileUp, FlaskConical, Link, MoreHorizontal, Pencil, Plus, RefreshCw, RotateCw, Search, SquareTerminal, TimerOff, Trash2, TriangleAlert, Webhook } from "lucide-react";
+import { ArrowRight, ClipboardPaste, Compass, Download, ExternalLink, FileUp, FlaskConical, Image as ImageIcon, Link, MoreHorizontal, Pencil, Plus, RefreshCw, RotateCw, Search, SquareTerminal, TimerOff, Trash2, TriangleAlert, Video, Webhook } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -1185,6 +1185,13 @@ export function AccountsPage() {
   const buildSummary = summary?.providers.grok_build ?? { total: 0, available: 0 };
   const webSummary = summary?.providers.grok_web ?? { total: 0, available: 0 };
   const consoleSummary = summary?.providers.grok_console ?? { total: 0, available: 0 };
+  const emptyWebQuota = { remaining: 0, total: 0, accounts: 0, exhausted: 0 };
+  const webQuotaMetrics = [
+    { mode: "image_pro", label: t("accounts.webQuotaImage"), icon: <ImageIcon />, tone: "text-violet-600 dark:text-violet-400" },
+    { mode: "image_edit", label: t("accounts.webQuotaImageEdit"), icon: <Pencil />, tone: "text-fuchsia-600 dark:text-fuchsia-400" },
+    { mode: "video", label: t("accounts.webQuotaVideo"), icon: <Video />, tone: "text-sky-600 dark:text-sky-400" },
+    { mode: "video_720p", label: t("accounts.webQuotaVideo720p"), icon: <Video />, tone: "text-cyan-600 dark:text-cyan-400" },
+  ].map((item) => ({ ...item, quota: summary?.webQuota[item.mode] ?? emptyWebQuota }));
   const summaryLoading = summaryQuery.isPending;
   const summaryUnavailable = summaryQuery.isError;
   const abnormalBreakdown = [
@@ -1300,6 +1307,25 @@ export function AccountsPage() {
           detailItems={abnormalDetailItems}
         />
       </section>
+      {provider === "grok_web" ? (
+        <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {webQuotaMetrics.map(({ mode, label, icon, tone, quota }) => (
+            <AccountMetricPanel
+              key={mode}
+              tone={tone}
+              icon={icon}
+              loading={summaryLoading}
+              label={label}
+              value={summaryUnavailable ? "-" : formatNumber(quota.remaining, i18n.language, 0)}
+              detail={summaryUnavailable ? "-" : t("accounts.webQuotaSummary", {
+                synced: formatNumber(quota.accounts, i18n.language, 0),
+                total: formatNumber(webSummary.total, i18n.language, 0),
+                exhausted: formatNumber(quota.exhausted, i18n.language, 0),
+              })}
+            />
+          ))}
+        </section>
+      ) : null}
       <div className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Tabs value={provider} onValueChange={(value) => changeProvider(value as AccountProvider)}>

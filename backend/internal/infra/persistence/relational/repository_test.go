@@ -324,12 +324,35 @@ func TestAccountRepositorySummarizesOperationalStates(t *testing.T) {
 	}
 
 	exhausted := create(account.ProviderWeb, "web-exhausted")
-	if err := repo.SaveQuotaWindows(ctx, exhausted.ID, account.WebTierSuper, now, []account.QuotaWindow{{AccountID: exhausted.ID, Mode: "fast", Remaining: 0, Total: 30, UpdatedAt: now}}); err != nil {
+	if err := repo.SaveQuotaWindows(ctx, exhausted.ID, account.WebTierSuper, now, []account.QuotaWindow{
+		{AccountID: exhausted.ID, Mode: "fast", Remaining: 0, Total: 30, UpdatedAt: now},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	reauth := create(account.ProviderWeb, "web-reauth")
 	reauth.AuthStatus = account.AuthStatusReauthRequired
 	if _, err := repo.Update(ctx, reauth); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveQuotaWindows(ctx, reauth.ID, account.WebTierBasic, now, []account.QuotaWindow{
+		{AccountID: reauth.ID, Mode: account.QuotaModeWebImagePro, Remaining: 3, Total: 4, UpdatedAt: now},
+		{AccountID: reauth.ID, Mode: account.QuotaModeWebImageEdit, Remaining: 0, Total: 2, UpdatedAt: now},
+		{AccountID: reauth.ID, Mode: account.QuotaModeWebVideo, Remaining: 4, Total: 4, UpdatedAt: now},
+		{AccountID: reauth.ID, Mode: account.QuotaModeWebVideo720p, Remaining: 1, Total: 1, UpdatedAt: now},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	quotaDisabled := create(account.ProviderWeb, "web-quota-disabled")
+	quotaDisabled.Enabled = false
+	if _, err := repo.Update(ctx, quotaDisabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveQuotaWindows(ctx, quotaDisabled.ID, account.WebTierSuper, now, []account.QuotaWindow{
+		{AccountID: quotaDisabled.ID, Mode: account.QuotaModeWebImagePro, Remaining: 0, Total: 4, UpdatedAt: now},
+		{AccountID: quotaDisabled.ID, Mode: account.QuotaModeWebImageEdit, Remaining: 2, Total: 2, UpdatedAt: now},
+		{AccountID: quotaDisabled.ID, Mode: account.QuotaModeWebVideo, Remaining: 1, Total: 1, UpdatedAt: now},
+		{AccountID: quotaDisabled.ID, Mode: account.QuotaModeWebVideo720p, Remaining: 0, Total: 1, UpdatedAt: now},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -346,8 +369,27 @@ func TestAccountRepositorySummarizesOperationalStates(t *testing.T) {
 		t.Fatalf("build summary = %#v", build)
 	}
 	web := byProvider[string(account.ProviderWeb)]
-	if web.Total != 2 || web.Available != 0 || web.WaitingReset != 1 || web.ReauthRequired != 1 {
+	if web.Total != 3 || web.Available != 0 || web.WaitingReset != 1 || web.ReauthRequired != 1 || web.Disabled != 1 {
 		t.Fatalf("web summary = %#v", web)
+	}
+	quotaRows, err := repo.SummarizeQuotaWindows(ctx, account.ProviderWeb, account.WebImagineQuotaModes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	quotaByMode := make(map[string]repository.AccountQuotaSummary, len(quotaRows))
+	for _, row := range quotaRows {
+		quotaByMode[row.Mode] = row
+	}
+	for mode, expected := range map[string]repository.AccountQuotaSummary{
+		account.QuotaModeWebImagePro:  {Remaining: 3, Total: 8, Accounts: 2, Exhausted: 1},
+		account.QuotaModeWebImageEdit: {Remaining: 2, Total: 4, Accounts: 2, Exhausted: 1},
+		account.QuotaModeWebVideo:     {Remaining: 5, Total: 5, Accounts: 2, Exhausted: 0},
+		account.QuotaModeWebVideo720p: {Remaining: 1, Total: 2, Accounts: 2, Exhausted: 1},
+	} {
+		actual := quotaByMode[mode]
+		if actual.Remaining != expected.Remaining || actual.Total != expected.Total || actual.Accounts != expected.Accounts || actual.Exhausted != expected.Exhausted {
+			t.Fatalf("quota summary %s = %#v, want %#v", mode, actual, expected)
+		}
 	}
 }
 
