@@ -89,9 +89,10 @@ deployment:
 
 provider:
   web:
-    # [按需修改] url 模式按请求向签名服务取 x-statsig-id。也可在管理端运行设置里热更新。
+    # [按需修改] builtin 使用主系统内置签名；采集及模型辅助参数在管理端运行设置中配置。
+    # url 模式使用下方外部签名地址；manual 模式使用管理端保存的固定值。
     # 公网必须是 HTTPS:443；内网可用 HTTP。默认 https://grok.wodf.de/sign。
-    statsigMode: url
+    statsigMode: builtin
     statsigSignerURL: "https://grok.wodf.de/sign"
 
 media:

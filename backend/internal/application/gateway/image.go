@@ -397,7 +397,7 @@ func (s *Service) executeImage(
 				lease.Release()
 				continue
 			}
-			if !provider.IsMediaPostProcessingError(err) {
+			if !provider.IsMediaPostProcessingError(err) && !provider.IsRequestScopedError(err) {
 				s.selector.MarkFailure(ctx, credential, 0, 0)
 			}
 			lease.Release()

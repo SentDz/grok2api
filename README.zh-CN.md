@@ -201,11 +201,16 @@ docker compose logs -f grok2api
 docker build -t grok2api:local . && GROK2API_IMAGE=grok2api:local docker compose up -d
 ```
 
-Compose 默认同时构建并启动独立签名器，需要支持 `pull_policy: build` 的 Docker Compose v2。
-首次部署后，在管理端运行设置中将 Statsig 模式设为 `url`，签名服务地址设为
-`http://statsig-signer:8788/sign` 并保存，后续部署会保留设置。数据库中的运行设置优先于 YAML。
-签名器只开放容器内网访问；每次部署会将最新签名代码和数据构建进镜像。
-检查方法和算法更新说明见 [签名器部署文档](tools/statsig-signer/README.md#docker-compose)。
+主镜像已包含内置 Statsig 签名和 Chromium 采集器，默认部署无需独立签名服务。
+已有部署请在管理端运行设置的 Grok Web 页选择“内置签名”并保存；数据库中的旧设置不会被强制覆盖。
+自动更新默认每 30 分钟采集，使用启用且认证正常的 Web 账号及其出口；可以指定采集账号 ID。
+大模型辅助修复默认使用本系统 Build 账号，也可配置外部 OpenAI 兼容 API 的基础 URL（如 `https://example.com/v1`）、Key 和模型名。
+每次修复最多尝试 3 次（可配置 1–8），模型调用会产生用量。外部 Key 加密保存，不在读取设置时返回。
+候选算法在独立、无宿主 API 的 JavaScript 执行进程中校验，并通过网页样本比对和上游验证后才切换。
+有效材料、上个版本和最近 20 条更新记录保存在数据库中，支持手动验证、刷新和回退。
+采集失败时保留旧版本；网页协议发生无法自动修复的变化时，管理端显示失败原因。
+镜像内 Chromium 以主程序的非 root 用户运行；Docker 环境默认禁用 Chromium 自身沙箱，采集出口限制为 Grok、x.ai 和 Cloudflare 域名。
+原独立签名器保留为兼容选项：`docker compose --profile external-signer up -d`，配合 URL 模式使用。
 
 访问 `http://127.0.0.1:7878`。镜像已包含前端，SQLite 数据库与本地媒体保存在 Compose 数据卷中。
 

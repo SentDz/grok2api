@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"github.com/chenyme/grok2api/backend/internal/domain/statsig"
 	"log/slog"
 	"sync"
 
@@ -38,6 +39,7 @@ type Adapter struct {
 	states          repository.ResponseRepository
 	assets          provider.ImageAssetStore
 	statsig         *statsigSigner
+	builtinStatsig  statsig.Signer
 	curatedVoices   *curatedVoiceCache
 	logger          *slog.Logger
 }

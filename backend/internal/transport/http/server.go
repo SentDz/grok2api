@@ -18,6 +18,7 @@ import (
 	mediaapp "github.com/chenyme/grok2api/backend/internal/application/media"
 	modelapp "github.com/chenyme/grok2api/backend/internal/application/model"
 	settingsapp "github.com/chenyme/grok2api/backend/internal/application/settings"
+	statsigapp "github.com/chenyme/grok2api/backend/internal/application/statsig"
 	updatecheckapp "github.com/chenyme/grok2api/backend/internal/application/updatecheck"
 	accounthttp "github.com/chenyme/grok2api/backend/internal/transport/http/account"
 	adminauthhttp "github.com/chenyme/grok2api/backend/internal/transport/http/adminauth"
@@ -60,6 +61,7 @@ type Dependencies struct {
 	Gateway                *gateway.Service
 	Media                  *mediaapp.Service
 	Settings               *settingsapp.Service
+	Statsig                *statsigapp.Service
 	Egress                 *egressapp.Service
 	QualityGuardStatePath  string
 	QualityGuardConfigPath string
@@ -148,6 +150,7 @@ func New(deps Dependencies) *gin.Engine {
 	authHandler.RegisterPublic(adminRoot)
 	adminProtected := adminRoot.Group("")
 	adminProtected.Use(middleware.AdminAuth(deps.AdminAuth))
+	settingshttp.RegisterStatsig(adminProtected, deps.Statsig)
 	authHandler.RegisterAuthenticated(adminProtected)
 	accounthttp.NewHandler(deps.Accounts, deps.AccountSync).Register(adminProtected)
 	modelhttp.NewHandler(deps.Models).Register(adminProtected)

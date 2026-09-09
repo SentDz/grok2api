@@ -27,14 +27,15 @@ grok2api 允许的内网地址：`http://127.0.0.1:8788/sign`。
 
 ### Docker Compose
 
-仓库根目录的 Compose 默认启动独立的 `statsig-signer` 服务。镜像包含 Python 和 Node，
+主系统已有内置签名模式，本目录作为独立部署兼容工具保留。
+仓库根目录的 Compose 使用 `external-signer` profile 启动 `statsig-signer` 服务。镜像包含 Python 和 Node，
 以非 root 用户运行，只监听容器内网端口，不向宿主机发布 8788 端口。
-主程序等待签名器健康检查通过后启动。
+该服务仅供 URL 模式使用，内置模式不依赖它。
 
-在仓库根目录执行原有的本地构建命令即可同时部署两个服务（使用支持 `pull_policy: build` 的 Docker Compose v2）：
+在仓库根目录显式启用兼容签名服务（使用支持 `pull_policy: build` 的 Docker Compose v2）：
 
 ```bash
-docker build -t grok2api:local . && GROK2API_IMAGE=grok2api:local docker compose up -d
+docker build -t grok2api:local . && GROK2API_IMAGE=grok2api:local docker compose --profile external-signer up -d
 ```
 
 首次部署后，在管理端运行设置中将 Statsig 模式设为 `url`，签名服务地址设为

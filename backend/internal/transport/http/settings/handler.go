@@ -69,26 +69,27 @@ type providerBuildConfigDTO struct {
 }
 
 type providerWebConfigDTO struct {
-	BaseURL                 string  `json:"baseURL"`
-	AutoQuotaSyncEnabled    *bool   `json:"autoQuotaSyncEnabled,omitempty"`
-	StatsigMode             string  `json:"statsigMode"`
-	StatsigManualValue      string  `json:"statsigManualValue,omitempty"`
-	StatsigManualConfigured bool    `json:"statsigManualConfigured"`
-	StatsigSignerURL        string  `json:"statsigSignerURL"`
-	ClearanceMode           *string `json:"clearanceMode,omitempty"`
-	FlareSolverrURL         *string `json:"flareSolverrURL,omitempty"`
-	ClearanceTimeout        *string `json:"clearanceTimeout,omitempty"`
-	ClearanceRefresh        *string `json:"clearanceRefresh,omitempty"`
-	QuotaTimeout            string  `json:"quotaTimeout"`
-	ChatTimeout             string  `json:"chatTimeout"`
-	StreamIdleTimeout       string  `json:"streamIdleTimeout"`
-	ImageTimeout            string  `json:"imageTimeout"`
-	VideoTimeout            string  `json:"videoTimeout"`
-	MediaConcurrency        int     `json:"mediaConcurrency"`
-	AllowNSFW               bool    `json:"allowNSFW"`
-	FreeVideoDurationCap    *int    `json:"freeVideoDurationCap,omitempty"`
-	RecoveryBackoffBase     string  `json:"recoveryBackoffBase"`
-	RecoveryBackoffMax      string  `json:"recoveryBackoffMax"`
+	BaseURL                 string                               `json:"baseURL"`
+	AutoQuotaSyncEnabled    *bool                                `json:"autoQuotaSyncEnabled,omitempty"`
+	StatsigMode             string                               `json:"statsigMode"`
+	StatsigManualValue      string                               `json:"statsigManualValue,omitempty"`
+	StatsigManualConfigured bool                                 `json:"statsigManualConfigured"`
+	StatsigSignerURL        string                               `json:"statsigSignerURL"`
+	StatsigBuiltin          *settingsdomain.StatsigBuiltinConfig `json:"statsigBuiltin,omitempty"`
+	ClearanceMode           *string                              `json:"clearanceMode,omitempty"`
+	FlareSolverrURL         *string                              `json:"flareSolverrURL,omitempty"`
+	ClearanceTimeout        *string                              `json:"clearanceTimeout,omitempty"`
+	ClearanceRefresh        *string                              `json:"clearanceRefresh,omitempty"`
+	QuotaTimeout            string                               `json:"quotaTimeout"`
+	ChatTimeout             string                               `json:"chatTimeout"`
+	StreamIdleTimeout       string                               `json:"streamIdleTimeout"`
+	ImageTimeout            string                               `json:"imageTimeout"`
+	VideoTimeout            string                               `json:"videoTimeout"`
+	MediaConcurrency        int                                  `json:"mediaConcurrency"`
+	AllowNSFW               bool                                 `json:"allowNSFW"`
+	FreeVideoDurationCap    *int                                 `json:"freeVideoDurationCap,omitempty"`
+	RecoveryBackoffBase     string                               `json:"recoveryBackoffBase"`
+	RecoveryBackoffMax      string                               `json:"recoveryBackoffMax"`
 }
 
 type batchConfigDTO struct {
@@ -205,7 +206,8 @@ func (value settingsConfigDTO) toApplication() settingsapp.EditableConfig {
 			StreamIdleTimeout:     value.ProviderBuild.StreamIdleTimeout,
 		},
 		ProviderWeb: settingsapp.ProviderWebConfig{
-			BaseURL: value.ProviderWeb.BaseURL, QuotaTimeout: value.ProviderWeb.QuotaTimeout,
+			StatsigBuiltin: value.ProviderWeb.StatsigBuiltin,
+			BaseURL:        value.ProviderWeb.BaseURL, QuotaTimeout: value.ProviderWeb.QuotaTimeout,
 			AutoQuotaSyncEnabled:         boolValue(value.ProviderWeb.AutoQuotaSyncEnabled),
 			AutoQuotaSyncEnabledProvided: value.ProviderWeb.AutoQuotaSyncEnabled != nil,
 			StatsigMode:                  value.ProviderWeb.StatsigMode, StatsigManualValue: value.ProviderWeb.StatsigManualValue,
@@ -301,7 +303,8 @@ func newSettingsResponse(value settingsapp.Snapshot) settingsResponse {
 				StreamIdleTimeout:     config.ProviderBuild.StreamIdleTimeout,
 			},
 			ProviderWeb: providerWebConfigDTO{
-				BaseURL: config.ProviderWeb.BaseURL, QuotaTimeout: config.ProviderWeb.QuotaTimeout,
+				StatsigBuiltin: config.ProviderWeb.StatsigBuiltin,
+				BaseURL:        config.ProviderWeb.BaseURL, QuotaTimeout: config.ProviderWeb.QuotaTimeout,
 				AutoQuotaSyncEnabled: boolPointer(config.ProviderWeb.AutoQuotaSyncEnabled),
 				StatsigMode:          config.ProviderWeb.StatsigMode, StatsigManualConfigured: config.ProviderWeb.StatsigManualConfigured,
 				StatsigSignerURL: config.ProviderWeb.StatsigSignerURL,

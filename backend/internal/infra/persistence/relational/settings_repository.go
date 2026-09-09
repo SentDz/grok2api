@@ -18,6 +18,7 @@ const runtimeSettingsKey = "gateway"
 type runtimeSettingsPayload struct {
 	Config                      settingsdomain.Config `json:"config"`
 	EncryptedStatsigManualValue string                `json:"encryptedStatsigManualValue,omitempty"`
+	EncryptedStatsigLLMKey      string                `json:"encryptedStatsigLLMKey,omitempty"`
 }
 
 type RuntimeSettingsRepository struct {
@@ -47,6 +48,13 @@ func (r *RuntimeSettingsRepository) Get(ctx context.Context) (settingsdomain.Con
 		return settingsdomain.Config{}, time.Time{}, 0, false, fmt.Errorf("解密 Statsig 手动值: %w", err)
 	}
 	payload.Config.ProviderWeb.StatsigManualValue = manualValue
+	if payload.Config.ProviderWeb.StatsigBuiltin != nil {
+		key, err := r.cipher.Decrypt(payload.EncryptedStatsigLLMKey)
+		if err != nil {
+			return settingsdomain.Config{}, time.Time{}, 0, false, fmt.Errorf("decrypt Statsig model key: %w", err)
+		}
+		payload.Config.ProviderWeb.StatsigBuiltin.LLMKey = key
+	}
 	return payload.Config, row.UpdatedAt, row.Revision, true, nil
 }
 
@@ -56,7 +64,17 @@ func (r *RuntimeSettingsRepository) Save(ctx context.Context, value settingsdoma
 		return time.Time{}, 0, fmt.Errorf("加密 Statsig 手动值: %w", err)
 	}
 	value.ProviderWeb.StatsigManualValue = ""
-	payload, err := json.Marshal(runtimeSettingsPayload{Config: value, EncryptedStatsigManualValue: manualValue})
+	var modelKey string
+	if value.ProviderWeb.StatsigBuiltin != nil {
+		copy := *value.ProviderWeb.StatsigBuiltin
+		modelKey, err = r.cipher.Encrypt(copy.LLMKey)
+		if err != nil {
+			return time.Time{}, 0, err
+		}
+		copy.LLMKey, copy.LLMKeyConfigured, copy.ClearLLMKey = "", false, false
+		value.ProviderWeb.StatsigBuiltin = &copy
+	}
+	payload, err := json.Marshal(runtimeSettingsPayload{Config: value, EncryptedStatsigManualValue: manualValue, EncryptedStatsigLLMKey: modelKey})
 	if err != nil {
 		return time.Time{}, 0, fmt.Errorf("编码运行设置: %w", err)
 	}

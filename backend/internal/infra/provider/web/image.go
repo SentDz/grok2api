@@ -1671,7 +1671,10 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 		// tls-client only auto-decompresses gzip. Advertising br/zstd lets
 		// upstream return a compressed body that json.Unmarshal cannot parse.
 		request.Header.Set("Accept-Encoding", "gzip")
-		a.applySignedStatsig(requestCtx, request, token, lease)
+		if err := a.applySignedStatsig(requestCtx, request, token, lease); err != nil {
+			cancel()
+			return nil, err
+		}
 		response, err := lease.DoDeferredForbidden(request)
 		if err != nil {
 			cancel()

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { SettingsConfigDTO } from "@/features/settings/settings-api";
+import { defaultStatsigBuiltin } from "@/features/settings/settings-api";
 
 export type DurationUnit = "s" | "m" | "h" | "d";
 export type DurationValue = { value: number; unit: DurationUnit };
@@ -80,7 +81,19 @@ export const settingsSchema = z.object({
   providerWeb: z.object({
     baseURL: z.url().refine((value) => value.startsWith("https://")),
     autoQuotaSyncEnabled: z.boolean(),
-    statsigMode: z.enum(["manual", "url"]),
+    statsigMode: z.enum(["builtin", "manual", "url"]),
+    statsigBuiltin: z.object({
+      autoUpdate: z.boolean(), checkIntervalSeconds: z.number().int().min(300).max(86400), captureAccountID: z.number().int().nonnegative(),
+      llmEnabled: z.boolean(), llmProvider: z.enum(["build", "external"]), llmURL: z.string().trim().max(2048),
+      llmKey: z.string().max(8192), llmKeyConfigured: z.boolean(), clearLLMKey: z.boolean(),
+      llmModel: z.string().trim().max(256), llmMaxAttempts: z.number().int().min(1).max(8),
+    }).superRefine((value, context) => {
+      if (value.llmEnabled && !value.llmModel) context.addIssue({code: "custom", path: ["llmModel"], message: "required"});
+      if (value.llmEnabled && value.llmProvider === "external") {
+        if (!validHTTPURL(value.llmURL)) context.addIssue({code: "custom", path: ["llmURL"], message: "invalid"});
+        if (!value.llmKey && (!value.llmKeyConfigured || value.clearLLMKey)) context.addIssue({code: "custom", path: ["llmKey"], message: "required"});
+      }
+    }),
     statsigManualValue: z.string().trim().max(4096),
     statsigManualConfigured: z.boolean(),
     statsigSignerURL: z.string().trim().max(2048),
@@ -207,6 +220,7 @@ export function toSettingsForm(config: SettingsConfigDTO): SettingsForm {
     providerWeb: {
       ...config.providerWeb,
       statsigManualValue: "",
+      statsigBuiltin: { ...(config.providerWeb.statsigBuiltin ?? defaultStatsigBuiltin()), llmKey: "", clearLLMKey: false },
       clearanceTimeout: parseDuration(config.providerWeb.clearanceTimeout), clearanceRefresh: parseDuration(config.providerWeb.clearanceRefresh),
       quotaTimeout: parseDuration(config.providerWeb.quotaTimeout), chatTimeout: parseDuration(config.providerWeb.chatTimeout), streamIdleTimeout: parseDuration(config.providerWeb.streamIdleTimeout),
       imageTimeout: parseDuration(config.providerWeb.imageTimeout), videoTimeout: parseDuration(config.providerWeb.videoTimeout),

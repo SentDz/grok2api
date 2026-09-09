@@ -215,12 +215,18 @@ To build and deploy the local checkout:
 docker build -t grok2api:local . && GROK2API_IMAGE=grok2api:local docker compose up -d
 ```
 
-Compose also builds and starts the independent Statsig signer. Use Docker Compose v2 with
-support for `pull_policy: build`. On first deployment, set Statsig mode to `url` and the
-signer URL to `http://statsig-signer:8788/sign` in the admin runtime settings, then save.
-Persisted settings override YAML and survive subsequent deployments. The signer has no
-published host port; each deployment rebuilds its code and data using the build cache.
-See the [signer deployment guide](tools/statsig-signer/README.md#docker-compose).
+The main image includes builtin Statsig signing and Chromium capture. Existing deployments
+can select Builtin in the Grok Web runtime settings; saved URL/manual settings are preserved.
+Automatic capture runs every 30 minutes by default using an active Web account and its egress.
+Model-assisted repair defaults to the system Build account pool, or an external OpenAI-compatible
+base URL, encrypted API key and model name. Attempts are bounded (default 3, maximum 8).
+Model calls consume quota. Candidate JavaScript runs in a separate process without host APIs,
+then must match browser samples and pass upstream validation before activation.
+Signature versions and update history are persisted, with verification, refresh and rollback
+controls in the admin UI. Capture failures preserve the previous material and expose diagnostics.
+Chromium runs as the non-root app user; its own sandbox is disabled by default in Docker, with
+capture egress limited to Grok, x.ai and Cloudflare domains. The old standalone signer remains
+available via `docker compose --profile external-signer up -d` for URL mode.
 
 ### Run from source
 

@@ -432,17 +432,31 @@ func validStatsigID(value string) bool {
 	return err == nil && len(decoded) == 70
 }
 
-func (a *Adapter) applySignedStatsig(ctx context.Context, request *http.Request, token string, lease *infraegress.Lease) {
+func (a *Adapter) applySignedStatsig(ctx context.Context, request *http.Request, token string, lease *infraegress.Lease) error {
 	if request == nil {
-		return
+		return nil
 	}
 	cfg := a.config()
 	request.Header.Del("x-statsig-id")
+	if cfg.StatsigMode == "builtin" {
+		if a.builtinStatsig != nil {
+			value, err := a.builtinStatsig.Sign(ctx, request.Method, request.URL.EscapedPath())
+			if err == nil {
+				request.Header.Set("x-statsig-id", value)
+			} else {
+				return builtinStatsigUnavailable{cause: err}
+			}
+		}
+		if request.Header.Get("x-statsig-id") == "" {
+			return builtinStatsigUnavailable{}
+		}
+		return nil
+	}
 	if cfg.StatsigMode == "manual" {
 		if value := strings.TrimSpace(cfg.StatsigManualValue); validStatsigID(value) {
 			request.Header.Set("x-statsig-id", value)
 		}
-		return
+		return nil
 	}
 	nowUnix := time.Now().Unix()
 	if a.statsig != nil && a.statsig.now != nil {
@@ -457,21 +471,32 @@ func (a *Adapter) applySignedStatsig(ctx context.Context, request *http.Request,
 			} else if source == "stale" {
 				a.log().Warn("web_statsig_refresh_failed_using_stale", "method", request.Method, "path", request.URL.EscapedPath())
 			}
-			return
+			return nil
 		}
 		a.log().Warn("web_statsig_fetch_failed", "method", request.Method, "path", request.URL.EscapedPath(), "error", err)
 	}
 	if value, err := generateLocalStatsig(request.Method, request.URL.EscapedPath(), nowUnix); err == nil {
 		request.Header.Set("x-statsig-id", value)
-		return
+		return nil
 	} else {
 		a.log().Warn("web_statsig_local_failed", "method", request.Method, "path", request.URL.EscapedPath(), "error", err)
 	}
+	return nil
 }
 
 // WarmStatsig 只使用一个 Web 账号和一个出口租约预热共享签名，不会逐账号访问上游。
 func (a *Adapter) WarmStatsig(ctx context.Context, credential account.Credential) (int, error) {
 	cfg := a.config()
+	if cfg.StatsigMode == "builtin" {
+		if a.builtinStatsig == nil {
+			return 0, fmt.Errorf("builtin Statsig is not initialized")
+		}
+		_, err := a.builtinStatsig.Sign(ctx, http.MethodPost, "/rest/app-chat/conversations/new")
+		if err != nil {
+			return 0, err
+		}
+		return 1, nil
+	}
 	if cfg.StatsigMode == "manual" {
 		if !validStatsigID(strings.TrimSpace(cfg.StatsigManualValue)) {
 			return 0, fmt.Errorf("手动 Statsig 配置无效")
@@ -510,6 +535,10 @@ func (a *Adapter) WarmStatsig(ctx context.Context, credential account.Credential
 
 func (a *Adapter) invalidateSignedStatsig(method, target string) bool {
 	cfg := a.config()
+	if cfg.StatsigMode == "builtin" && a.builtinStatsig != nil {
+		a.builtinStatsig.Invalidate()
+		return true
+	}
 	if cfg.StatsigMode == "manual" {
 		return false
 	}

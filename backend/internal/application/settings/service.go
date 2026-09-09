@@ -46,6 +46,7 @@ type ProviderWebConfig struct {
 	StatsigManualValue           string
 	StatsigManualConfigured      bool
 	StatsigSignerURL             string
+	StatsigBuiltin               *settingsdomain.StatsigBuiltinConfig
 	ClearanceMode                string
 	FlareSolverrURL              string
 	ClearanceTimeout             string
@@ -365,8 +366,13 @@ func applyDomainConfig(base config.Config, value settingsdomain.Config) config.C
 	if freeVideoDurationCap == 0 {
 		freeVideoDurationCap = base.Provider.Web.FreeVideoDurationCap
 	}
+	builtin := base.Provider.Web.StatsigBuiltin
+	if value.ProviderWeb.StatsigBuiltin != nil {
+		builtin = *value.ProviderWeb.StatsigBuiltin
+	}
 	base.Provider.Web = config.WebProviderConfig{
-		BaseURL: value.ProviderWeb.BaseURL, QuotaTimeout: config.Duration(value.ProviderWeb.QuotaTimeout),
+		StatsigBuiltin: builtin,
+		BaseURL:        value.ProviderWeb.BaseURL, QuotaTimeout: config.Duration(value.ProviderWeb.QuotaTimeout),
 		AutoQuotaSyncEnabled: autoQuotaSyncEnabled,
 		StatsigMode:          value.ProviderWeb.StatsigMode, StatsigManualValue: value.ProviderWeb.StatsigManualValue, StatsigSignerURL: value.ProviderWeb.StatsigSignerURL,
 		ClearanceMode: clearanceMode, FlareSolverrURL: flareSolverrURL,
@@ -514,7 +520,8 @@ func toDomainConfig(value config.Config) settingsdomain.Config {
 			StreamIdleTimeout:     value.Provider.Build.StreamIdleTimeout.Value(),
 		},
 		ProviderWeb: settingsdomain.ProviderWebConfig{
-			BaseURL: value.Provider.Web.BaseURL, QuotaTimeout: value.Provider.Web.QuotaTimeout.Value(),
+			StatsigBuiltin: statsigBuiltinPointer(value.Provider.Web.StatsigBuiltin),
+			BaseURL:        value.Provider.Web.BaseURL, QuotaTimeout: value.Provider.Web.QuotaTimeout.Value(),
 			AutoQuotaSyncEnabled: boolPointer(value.Provider.Web.AutoQuotaSyncEnabled),
 			StatsigMode:          value.Provider.Web.StatsigMode, StatsigManualValue: value.Provider.Web.StatsigManualValue,
 			StatsigSignerURL: value.Provider.Web.StatsigSignerURL,
@@ -617,6 +624,20 @@ func mergeEditable(current config.Config, input EditableConfig) (config.Config, 
 	}
 	next.Provider.Web.StatsigMode = strings.TrimSpace(input.ProviderWeb.StatsigMode)
 	next.Provider.Web.StatsigSignerURL = strings.TrimSpace(input.ProviderWeb.StatsigSignerURL)
+	if input.ProviderWeb.StatsigBuiltin != nil {
+		builtin := *input.ProviderWeb.StatsigBuiltin
+		if builtin.ClearLLMKey {
+			builtin.LLMKey = ""
+		} else if strings.TrimSpace(builtin.LLMKey) == "" {
+			builtin.LLMKey = current.Provider.Web.StatsigBuiltin.LLMKey
+		}
+		builtin.ClearLLMKey, builtin.LLMKeyConfigured = false, false
+		builtin.LLMURL, builtin.LLMModel = strings.TrimSpace(builtin.LLMURL), strings.TrimSpace(builtin.LLMModel)
+		if err := builtin.Validate(); err != nil {
+			return current, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+		}
+		next.Provider.Web.StatsigBuiltin = builtin
+	}
 	if input.ProviderWeb.ClearanceProvided {
 		next.Provider.Web.ClearanceMode = strings.TrimSpace(input.ProviderWeb.ClearanceMode)
 		next.Provider.Web.FlareSolverrURL = strings.TrimSpace(input.ProviderWeb.FlareSolverrURL)
@@ -774,7 +795,8 @@ func toEditable(cfg config.Config) EditableConfig {
 			StreamIdleTimeout:     cfg.Provider.Build.StreamIdleTimeout.String(),
 		},
 		ProviderWeb: ProviderWebConfig{
-			BaseURL: cfg.Provider.Web.BaseURL, QuotaTimeout: cfg.Provider.Web.QuotaTimeout.String(),
+			StatsigBuiltin: publicStatsigBuiltin(cfg.Provider.Web.StatsigBuiltin),
+			BaseURL:        cfg.Provider.Web.BaseURL, QuotaTimeout: cfg.Provider.Web.QuotaTimeout.String(),
 			AutoQuotaSyncEnabled: cfg.Provider.Web.AutoQuotaSyncEnabled, AutoQuotaSyncEnabledProvided: true,
 			StatsigMode: cfg.Provider.Web.StatsigMode, StatsigManualConfigured: strings.TrimSpace(cfg.Provider.Web.StatsigManualValue) != "",
 			StatsigSignerURL: cfg.Provider.Web.StatsigSignerURL,

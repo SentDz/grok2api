@@ -18,11 +18,12 @@ import { VersionUpdateSection } from "@/features/system/version-update";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { isByteSizeUnit, isDurationUnit, MAX_ROUTING_ATTEMPTS, type ByteSizeValue, type DurationValue, UNLIMITED_ROUTING_ATTEMPTS } from "@/features/settings/settings-model";
 import { useSettings } from "@/features/settings/use-settings";
+import { StatsigSettings } from "@/features/settings/statsig-settings";
 import { ErrorState } from "@/shared/components/data-state";
 import { cn } from "@/shared/lib/cn";
 
 export function SettingsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { form, settingsQuery, updateMutation, reset } = useSettings();
   const [autoCleanConfirm, setAutoCleanConfirm] = useState<"enabled" | "includeDisabled" | null>(null);
   const [unlimitedAttemptsConfirm, setUnlimitedAttemptsConfirm] = useState(false);
@@ -125,7 +126,8 @@ export function SettingsPage() {
               <SettingsField controlId="web-statsig-mode" className="sm:col-span-2" label={t("settings.web.statsigMode")} description={t("settings.web.statsigModeHelp")} error={form.formState.errors.providerWeb?.statsigMode?.message}>
                 <Controller control={form.control} name="providerWeb.statsigMode" render={({ field }) => (
                   <Tabs value={field.value} onValueChange={field.onChange}>
-                    <TabsList id="web-statsig-mode" className="grid w-full grid-cols-2 bg-muted/55">
+                    <TabsList id="web-statsig-mode" className="grid w-full grid-cols-3 bg-muted/55">
+                      <TabsTrigger value="builtin" className="font-normal">{i18n.language.startsWith("zh") ? "内置签名" : "Builtin"}</TabsTrigger>
                       <TabsTrigger value="manual" className="font-normal">{t("settings.web.statsigManual")}</TabsTrigger>
                       <TabsTrigger value="url" className="font-normal">{t("settings.web.statsigURL")}</TabsTrigger>
                     </TabsList>
@@ -136,11 +138,11 @@ export function SettingsPage() {
                 <SettingsField controlId="web-statsig-manual" className="sm:col-span-2" label={t("settings.web.statsigValue")} description={t("settings.web.statsigValueHelp")} badge={statsigManualConfigured ? t("settings.web.statsigConfigured") : undefined} error={form.formState.errors.providerWeb?.statsigManualValue?.message}>
                   <Input id="web-statsig-manual" type="password" autoComplete="off" placeholder={statsigManualConfigured ? t("settings.web.statsigKeepConfigured") : t("settings.web.statsigValuePlaceholder")} {...form.register("providerWeb.statsigManualValue")} />
                 </SettingsField>
-              ) : (
+              ) : statsigMode === "url" ? (
                 <SettingsField controlId="web-statsig-url" className="sm:col-span-2" label={t("settings.web.statsigSignerURL")} description={t("settings.web.statsigSignerURLHelp")} error={form.formState.errors.providerWeb?.statsigSignerURL?.message}>
                   <Input id="web-statsig-url" type="url" placeholder="http://127.0.0.1:8788/sign" {...form.register("providerWeb.statsigSignerURL")} />
                 </SettingsField>
-              )}
+              ) : <StatsigSettings form={form} />}
               <SettingsField controlId="web-quota-timeout" label={t("settings.web.quotaTimeout")} description={t("settings.web.quotaTimeoutHelp")} error={form.formState.errors.providerWeb?.quotaTimeout?.message}><Controller control={form.control} name="providerWeb.quotaTimeout" render={({ field }) => <DurationInput id="web-quota-timeout" value={field.value} onChange={field.onChange} />} /></SettingsField>
               <SettingsField controlId="web-auto-quota-sync" label={t("settingsWebQuotaSync.enabled")} description={t("settingsWebQuotaSync.enabledHelp")}><Controller control={form.control} name="providerWeb.autoQuotaSyncEnabled" render={({ field }) => <div className="flex h-8 items-center"><Switch id="web-auto-quota-sync" checked={field.value} onCheckedChange={field.onChange} /></div>} /></SettingsField>
               <SettingsField controlId="web-chat-timeout" label={t("settings.web.chatTimeout")} description={t("settings.web.chatTimeoutHelp")} error={form.formState.errors.providerWeb?.chatTimeout?.message}><Controller control={form.control} name="providerWeb.chatTimeout" render={({ field }) => <DurationInput id="web-chat-timeout" value={field.value} onChange={field.onChange} />} /></SettingsField>

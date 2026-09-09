@@ -14,9 +14,16 @@ import (
 	"os"
 
 	"github.com/chenyme/grok2api/backend/internal/cli"
+	"github.com/chenyme/grok2api/backend/internal/infra/statsigeval"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--statsig-eval" {
+		if err := statsigeval.Worker(os.Stdin, os.Stdout); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if err := cli.Run(os.Args[1:]); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

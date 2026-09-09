@@ -4,13 +4,25 @@ import type { SortOrder } from "@/shared/lib/table-sort";
 
 export type SSOVideoRiskEverMode = "auto" | "on" | "off";
 
+export type StatsigBuiltinConfigDTO = {
+  autoUpdate: boolean; checkIntervalSeconds: number; captureAccountID: number;
+  llmEnabled: boolean; llmProvider: "build" | "external"; llmURL: string;
+  llmKey?: string; llmKeyConfigured: boolean; clearLLMKey?: boolean;
+  llmModel: string; llmMaxAttempts: number;
+};
+
+export function defaultStatsigBuiltin(): StatsigBuiltinConfigDTO {
+  return { autoUpdate: true, checkIntervalSeconds: 1800, captureAccountID: 0, llmEnabled: true, llmProvider: "build", llmURL: "", llmKeyConfigured: false, llmModel: "grok-4.6", llmMaxAttempts: 3 };
+}
+
 export type SettingsConfigDTO = {
   server: { maxConcurrentRequests: number };
   providerBuild: { baseURL: string; fallbackBaseURL: string; clientVersion: string; clientIdentifier: string; tokenAuth: string; tokenAuthConfigured: boolean; userAgent: string; responseHeaderTimeout: string; streamIdleTimeout: string };
   providerWeb: {
     baseURL: string; quotaTimeout: string; chatTimeout: string; streamIdleTimeout: string; imageTimeout: string; videoTimeout: string;
     autoQuotaSyncEnabled: boolean;
-    statsigMode: "manual" | "url"; statsigManualValue?: string; statsigManualConfigured: boolean; statsigSignerURL: string;
+    statsigMode: "builtin" | "manual" | "url"; statsigManualValue?: string; statsigManualConfigured: boolean; statsigSignerURL: string;
+    statsigBuiltin?: StatsigBuiltinConfigDTO;
     clearanceMode: ClearanceMode; flareSolverrURL: string; clearanceTimeout: string; clearanceRefresh: string;
     mediaConcurrency: number; allowNSFW: boolean; freeVideoDurationCap?: number;
     recoveryBackoffBase: string; recoveryBackoffMax: string;
@@ -126,7 +138,8 @@ const settingsConfigValidator = hasShape({
   providerWeb: hasShape({
     baseURL: isString, quotaTimeout: isString, chatTimeout: isString, streamIdleTimeout: isOptional(isString), imageTimeout: isString, videoTimeout: isString,
     autoQuotaSyncEnabled: isOptional(isBoolean),
-    statsigMode: isOneOf("manual", "url"), statsigManualValue: isOptional(isString), statsigManualConfigured: isBoolean,
+    statsigMode: isOneOf("builtin", "manual", "url"), statsigManualValue: isOptional(isString), statsigManualConfigured: isBoolean,
+    statsigBuiltin: isOptional(hasShape({ autoUpdate: isBoolean, checkIntervalSeconds: isNumber, captureAccountID: isNumber, llmEnabled: isBoolean, llmProvider: isOneOf("build", "external"), llmURL: isString, llmKeyConfigured: isBoolean, llmModel: isString, llmMaxAttempts: isNumber })),
     statsigSignerURL: isString, clearanceMode: isOneOf("manual", "flaresolverr", "on_demand"), flareSolverrURL: isString,
     clearanceTimeout: isString, clearanceRefresh: isString, mediaConcurrency: isNumber, allowNSFW: isBoolean, freeVideoDurationCap: isOptional(isNumber), recoveryBackoffBase: isString, recoveryBackoffMax: isString,
   }),
@@ -182,6 +195,7 @@ function withSettingsDefaults(snapshot: SettingsSnapshotDTO): SettingsSnapshotDT
       providerWeb: {
         ...snapshot.config.providerWeb,
         autoQuotaSyncEnabled: snapshot.config.providerWeb.autoQuotaSyncEnabled ?? true,
+        statsigBuiltin: snapshot.config.providerWeb.statsigBuiltin ?? defaultStatsigBuiltin(),
         streamIdleTimeout: snapshot.config.providerWeb.streamIdleTimeout || "1m30s",
       },
       providerConsole: {

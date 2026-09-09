@@ -279,7 +279,7 @@ export function AppShell() {
           <main className={cn("mx-auto w-full max-w-[1280px] flex-1 px-5 sm:px-8", isMediaWorkspace ? "pt-8 pb-0 lg:pt-20" : "py-8 lg:py-20")}>
             <Outlet />
           </main>
-          {!isMediaWorkspace ? <SiteFooter /> : null}
+          {!isMediaWorkspace ? <SiteFooter inline={location.pathname === "/settings"} /> : null}
         </div>
 
       <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>

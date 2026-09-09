@@ -23,6 +23,7 @@ import (
 const (
 	DatabaseURLEnv                = "GROK2API_DATABASE_URL"
 	StatsigModeManual             = "manual"
+	StatsigModeBuiltin            = "builtin"
 	StatsigModeURL                = "url"
 	ClearanceModeManual           = "manual"
 	ClearanceModeFlareSolverr     = "flaresolverr"
@@ -164,25 +165,26 @@ type BuildProviderConfig struct {
 const DefaultBuildFallbackBaseURL = "https://api.x.ai/v1"
 
 type WebProviderConfig struct {
-	BaseURL              string   `yaml:"baseURL"`
-	AutoQuotaSyncEnabled bool     `yaml:"-"`
-	StatsigMode          string   `yaml:"statsigMode"`
-	StatsigManualValue   string   `yaml:"-"`
-	StatsigSignerURL     string   `yaml:"statsigSignerURL"`
-	ClearanceMode        string   `yaml:"-"`
-	FlareSolverrURL      string   `yaml:"-"`
-	ClearanceTimeout     Duration `yaml:"-"`
-	ClearanceRefresh     Duration `yaml:"-"`
-	QuotaTimeout         Duration `yaml:"quotaTimeout"`
-	ChatTimeout          Duration `yaml:"chatTimeout"`
-	StreamIdleTimeout    Duration `yaml:"-"`
-	ImageTimeout         Duration `yaml:"imageTimeout"`
-	VideoTimeout         Duration `yaml:"videoTimeout"`
-	MediaConcurrency     int      `yaml:"mediaConcurrency"`
-	AllowNSFW            bool     `yaml:"allowNSFW"`
-	FreeVideoDurationCap int      `yaml:"freeVideoDurationCap"`
-	RecoveryBackoffBase  Duration `yaml:"recoveryBackoffBase"`
-	RecoveryBackoffMax   Duration `yaml:"recoveryBackoffMax"`
+	BaseURL              string                              `yaml:"baseURL"`
+	AutoQuotaSyncEnabled bool                                `yaml:"-"`
+	StatsigMode          string                              `yaml:"statsigMode"`
+	StatsigManualValue   string                              `yaml:"-"`
+	StatsigSignerURL     string                              `yaml:"statsigSignerURL"`
+	StatsigBuiltin       settingsdomain.StatsigBuiltinConfig `yaml:"-"`
+	ClearanceMode        string                              `yaml:"-"`
+	FlareSolverrURL      string                              `yaml:"-"`
+	ClearanceTimeout     Duration                            `yaml:"-"`
+	ClearanceRefresh     Duration                            `yaml:"-"`
+	QuotaTimeout         Duration                            `yaml:"quotaTimeout"`
+	ChatTimeout          Duration                            `yaml:"chatTimeout"`
+	StreamIdleTimeout    Duration                            `yaml:"-"`
+	ImageTimeout         Duration                            `yaml:"imageTimeout"`
+	VideoTimeout         Duration                            `yaml:"videoTimeout"`
+	MediaConcurrency     int                                 `yaml:"mediaConcurrency"`
+	AllowNSFW            bool                                `yaml:"allowNSFW"`
+	FreeVideoDurationCap int                                 `yaml:"freeVideoDurationCap"`
+	RecoveryBackoffBase  Duration                            `yaml:"recoveryBackoffBase"`
+	RecoveryBackoffMax   Duration                            `yaml:"recoveryBackoffMax"`
 }
 
 type ConsoleProviderConfig struct {
@@ -640,6 +642,10 @@ func (c Config) Validate() error {
 		return errors.New("provider.web.baseURL 必须是无凭据的 HTTPS URL")
 	}
 	switch c.Provider.Web.StatsigMode {
+	case StatsigModeBuiltin:
+		if err := c.Provider.Web.StatsigBuiltin.Validate(); err != nil {
+			return err
+		}
 	case StatsigModeManual:
 		if !validStatsigID(c.Provider.Web.StatsigManualValue) {
 			return errors.New("provider.web 手动 x-statsig-id 格式无效")
@@ -947,7 +953,8 @@ func defaultConfig() Config {
 				StreamIdleTimeout: Duration(settingsdomain.DefaultBuildStreamIdleTimeout),
 			},
 			Web: WebProviderConfig{
-				BaseURL: "https://grok.com", StatsigMode: StatsigModeURL, StatsigSignerURL: DefaultStatsigSignerURL,
+				BaseURL: "https://grok.com", StatsigMode: StatsigModeBuiltin, StatsigSignerURL: DefaultStatsigSignerURL,
+				StatsigBuiltin:       settingsdomain.DefaultStatsigBuiltin(),
 				AutoQuotaSyncEnabled: true,
 				ClearanceMode:        ClearanceModeManual, FlareSolverrURL: DefaultFlareSolverrURL,
 				ClearanceTimeout: Duration(time.Minute), ClearanceRefresh: Duration(10 * time.Minute),

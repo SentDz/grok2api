@@ -171,7 +171,9 @@ func (a *Adapter) fetchCuratedVoiceCatalog(ctx context.Context, cfg Config, leas
 	request.Header.Set("Upgrade-Insecure-Requests", "1")
 	request.Header.Set("User-Agent", lease.UserAgent)
 	request.Header.Set("Cookie", infraegress.BuildSSOCookie(token, lease.CFCookies))
-	a.applySignedStatsig(requestCtx, request, token, lease)
+	if err := a.applySignedStatsig(requestCtx, request, token, lease); err != nil {
+		return mediadomain.CuratedVoiceCatalog{}, err
+	}
 	response, err := lease.Do(request)
 	if err != nil {
 		return mediadomain.CuratedVoiceCatalog{}, err
