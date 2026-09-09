@@ -209,6 +209,19 @@ docker compose logs -f grok2api
 
 Open `http://127.0.0.1:7878`. The image already includes the frontend; SQLite data and local media are stored in the Compose volume.
 
+To build and deploy the local checkout:
+
+```bash
+docker build -t grok2api:local . && GROK2API_IMAGE=grok2api:local docker compose up -d
+```
+
+Compose also builds and starts the independent Statsig signer. Use Docker Compose v2 with
+support for `pull_policy: build`. On first deployment, set Statsig mode to `url` and the
+signer URL to `http://statsig-signer:8788/sign` in the admin runtime settings, then save.
+Persisted settings override YAML and survive subsequent deployments. The signer has no
+published host port; each deployment rebuilds its code and data using the build cache.
+See the [signer deployment guide](tools/statsig-signer/README.md#docker-compose).
+
 ### Run from source
 
 ```bash

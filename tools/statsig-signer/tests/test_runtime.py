@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from statsig_signer.algorithm import decode_seed
 from statsig_signer.runtime import HotRuntime
@@ -12,6 +13,21 @@ PAIR = json.loads((ROOT / "data" / "pair.json").read_text(encoding="utf-8"))
 
 
 class HotEvalTest(unittest.TestCase):
+    def test_slow_worker_start_still_uses_js(self) -> None:
+        with TemporaryDirectory() as directory:
+            hot = Path(directory)
+            worker = (ROOT / "hot" / "eval_worker.js").read_text(encoding="utf-8")
+            (hot / "eval_worker.js").write_text(
+                "setTimeout(() => {\n" + worker + "\n}, 400);\n", encoding="utf-8"
+            )
+            runtime = HotRuntime(hot)
+            try:
+                seed = decode_seed(PAIR["seed"])
+                self.assertEqual(runtime.eval_js(runtime.current_js(), seed, PAIR["paths"]), PAIR["hex"])
+                self.assertEqual(runtime.eval_js(runtime.current_js(), seed, PAIR["paths"]), PAIR["hex"])
+            finally:
+                runtime.close()
+
     def test_js_eval_matches_live_pair(self) -> None:
         runtime = HotRuntime(ROOT / "hot")
         self.addCleanup(runtime.close)

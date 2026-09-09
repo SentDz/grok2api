@@ -18,6 +18,7 @@ HEX_JS = HOT_DIR / "hex.js"
 HEX_PY = HOT_DIR / "hex.py"
 WORKER_JS = HOT_DIR / "eval_worker.js"
 EVAL_TIMEOUT_SEC = 0.25
+WORKER_START_TIMEOUT_SEC = 2.0
 
 
 class HotRuntime:
@@ -78,6 +79,7 @@ class HotRuntime:
             ensure_ascii=False,
         )
         with self._mu:
+            starting = self._proc is None or self._proc.poll() is not None
             proc = self._ensure_worker_locked()
             try:
                 proc.stdin.write(payload + "\n")
@@ -85,7 +87,9 @@ class HotRuntime:
             except Exception:
                 self._stop_locked()
                 raise
-            line = self._readline_locked(proc, EVAL_TIMEOUT_SEC)
+            # Container cold starts need more time than a warm JS evaluation.
+            timeout = WORKER_START_TIMEOUT_SEC if starting else EVAL_TIMEOUT_SEC
+            line = self._readline_locked(proc, timeout)
             if line is None:
                 self._stop_locked()
                 raise RuntimeError("JS eval timeout")

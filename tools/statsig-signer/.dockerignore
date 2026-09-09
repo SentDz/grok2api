@@ -1,0 +1,10 @@
+**
+!Dockerfile
+!statsig_signer/
+!statsig_signer/*.py
+!hot/
+!hot/*.js
+!hot/*.py
+!data/
+!data/pair.json
+!data/formula.json

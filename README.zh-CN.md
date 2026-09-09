@@ -195,7 +195,17 @@ docker compose up -d
 docker compose logs -f grok2api
 ```
 
+从本地代码构建部署：
+
+```bash
 docker build -t grok2api:local . && GROK2API_IMAGE=grok2api:local docker compose up -d
+```
+
+Compose 默认同时构建并启动独立签名器，需要支持 `pull_policy: build` 的 Docker Compose v2。
+首次部署后，在管理端运行设置中将 Statsig 模式设为 `url`，签名服务地址设为
+`http://statsig-signer:8788/sign` 并保存，后续部署会保留设置。数据库中的运行设置优先于 YAML。
+签名器只开放容器内网访问；每次部署会将最新签名代码和数据构建进镜像。
+检查方法和算法更新说明见 [签名器部署文档](tools/statsig-signer/README.md#docker-compose)。
 
 访问 `http://127.0.0.1:7878`。镜像已包含前端，SQLite 数据库与本地媒体保存在 Compose 数据卷中。
 

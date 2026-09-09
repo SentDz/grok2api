@@ -4,6 +4,9 @@ services:
   grok2api:
     container_name: grok2api
     image: "${GROK2API_IMAGE:-ghcr.io/chenyme/grok2api:v3.1.1}"
+    depends_on:
+      statsig-signer:
+        condition: service_healthy
     ports:
       - "${GROK2API_PORT:-7878}:8000"
     environment:
@@ -18,6 +21,18 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+
+  # Configure Statsig URL mode in the admin UI with http://statsig-signer:8788/sign.
+  statsig-signer:
+    build:
+      context: ./tools/statsig-signer
+    # Rebuild on up so updated signing code and data are included.
+    pull_policy: build
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 10s
     security_opt:
       - no-new-privileges:true
 
