@@ -20,7 +20,7 @@ class SignerHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
-        if path in ("/health", "/"):
+        if path in ("/health", "/", "/fingerprint"):
             pair = None
             try:
                 pair = self.store.pair

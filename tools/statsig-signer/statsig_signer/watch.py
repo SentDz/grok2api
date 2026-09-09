@@ -191,7 +191,7 @@ def tick(
     if need_repair:
         from .agent import update
 
-        report["repair"] = update(store=store, browser=browser, **capture_kwargs)
+        report["repair"] = update(store=store, browser=browser, defer_capture=True, **capture_kwargs)
         current = dict(current)
         current["repair_ok"] = bool(report["repair"].get("ok"))
         report["fingerprint"] = current

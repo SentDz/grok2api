@@ -63,6 +63,99 @@ def recover_formula(
     return RecoverResult(status="recovered", formula=inverted, hex=verified, reason="穷举下标后与官方 HEX 一致")
 
 
+def recover_formula_stable(
+    samples: Sequence[dict[str, Any]],
+    current: Formula | None = None,
+) -> RecoverResult:
+    """Invert path/seg/seek indices that match every sample. One seed is not enough."""
+    current = current or Formula()
+    parsed: list[tuple[bytes, list[str], str, float | None]] = []
+    for item in samples:
+        seed = item.get("seed_bytes")
+        if seed is None:
+            continue
+        paths = list(item.get("paths") or [])
+        official = str(item.get("hex") or "").strip()
+        if len(paths) < 4 or not official:
+            continue
+        parsed.append((seed, paths, official, item.get("seek")))
+    if len(parsed) < 2:
+        return RecoverResult(status="needs_agent", reason="稳定反解至少需要两次不同 seed 的官方 HEX")
+    directs = []
+    for seed, paths, official, seek in parsed:
+        hit = _search_direct(seed, paths, official, seek)
+        if not hit:
+            return RecoverResult(status="needs_agent", reason="有抓包穷举不到 path/seg/seek")
+        directs.append(hit)
+    n = len(parsed[0][0])
+    path_idx = [
+        i
+        for i in range(n)
+        if all(int(parsed[k][0][i]) % current.path_mod == directs[k]["path"] for k in range(len(parsed)))
+    ]
+    seg_idx = [
+        i
+        for i in range(n)
+        if all(int(parsed[k][0][i]) % current.seg_mod == directs[k]["seg"] for k in range(len(parsed)))
+    ]
+    if not path_idx or not seg_idx:
+        return RecoverResult(status="needs_agent", reason="两次抓包对不上同一套 path/seg 下标")
+    seek_mod = current.seek_mod
+    align = current.seek_align or 1
+    seek_groups: dict[tuple[int, ...], tuple[int, int, int]] = {}
+    current_seeks = tuple(int(v) for v in current.seek_indices)
+    for a, b, c in product(range(n), repeat=3):
+        ok = True
+        for k, (seed, _, _, _) in enumerate(parsed):
+            product_v = (int(seed[a]) % seek_mod) * (int(seed[b]) % seek_mod) * (int(seed[c]) % seek_mod)
+            if go_round(product_v / align) * align != float(directs[k]["seek"]):
+                ok = False
+                break
+        if ok:
+            key = tuple(sorted((a, b, c)))
+            if key not in seek_groups or (a, b, c) == current_seeks:
+                seek_groups[key] = (a, b, c)
+    if not seek_groups:
+        return RecoverResult(status="needs_agent", reason="两次抓包对不上同一套 seek 下标")
+    candidates = [
+        {"path_index": path_idx, "seg_index": seg_idx, "seek_indices": list(item)}
+        for item in seek_groups.values()
+    ]
+    if len(path_idx) != 1 or len(seg_idx) != 1 or len(seek_groups) != 1:
+        return RecoverResult(
+            status="ambiguous",
+            reason=(
+                f"{len(parsed)} 次抓包后仍有 {len(path_idx)} 个 path、{len(seg_idx)} 个 seg、"
+                f"{len(seek_groups)} 组 seek 下标，再 capture_page"
+            ),
+            candidates=candidates[:12],
+        )
+    seek_hit = next(iter(seek_groups.values()))
+    formula = Formula(
+        path_index=path_idx[0],
+        path_mod=current.path_mod,
+        seg_index=seg_idx[0],
+        seg_mod=current.seg_mod,
+        seek_indices=seek_hit,
+        seek_mod=current.seek_mod,
+        seek_align=current.seek_align,
+        duration=current.duration,
+        epoch=current.epoch,
+        salt=current.salt,
+        mark=current.mark,
+    )
+    for seed, paths, official, _ in parsed:
+        if compute_hex(seed, paths, formula) != official:
+            return RecoverResult(status="needs_agent", reason="稳定公式复算 HEX 不一致")
+    status = "matched" if formula == current else "recovered"
+    reason = (
+        "当前公式是这几次抓包的唯一解"
+        if status == "matched"
+        else "多次抓包交叉后下标唯一，与官方 HEX 一致"
+    )
+    return RecoverResult(status=status, formula=formula, hex=parsed[0][2], reason=reason, candidates=candidates)
+
+
 def _search_direct(
     seed: bytes,
     paths: Sequence[str],
@@ -115,22 +208,49 @@ def _invert_indices(seed: bytes, current: Formula, direct: dict[str, Any]) -> Fo
     seek_mod = current.seek_mod
     align = current.seek_align or 1
     n = len(seed)
-    for a, b, c in product(range(n), repeat=3):
-        product_v = (int(seed[a]) % seek_mod) * (int(seed[b]) % seek_mod) * (int(seed[c]) % seek_mod)
-        if go_round(product_v / align) * align == seek:
-            path_index = path_bytes[0] if path_bytes else current.path_index
-            seg_index = seg_bytes[0] if seg_bytes else current.seg_index
-            return Formula(
-                path_index=path_index,
-                path_mod=current.path_mod,
-                seg_index=seg_index,
-                seg_mod=current.seg_mod,
-                seek_indices=(a, b, c),
-                seek_mod=current.seek_mod,
-                seek_align=current.seek_align,
-                duration=current.duration,
-                epoch=current.epoch,
-                salt=current.salt,
-                mark=current.mark,
-            )
-    return None
+    path_index = path_bytes[0] if path_bytes else current.path_index
+    seg_index = seg_bytes[0] if seg_bytes else current.seg_index
+    if current.path_index in path_bytes:
+        path_index = current.path_index
+    if current.seg_index in seg_bytes:
+        seg_index = current.seg_index
+    seek_hit = None
+    if _formula_matches_direct(
+        seed,
+        Formula(
+            path_index=path_index,
+            path_mod=current.path_mod,
+            seg_index=seg_index,
+            seg_mod=current.seg_mod,
+            seek_indices=current.seek_indices,
+            seek_mod=current.seek_mod,
+            seek_align=current.seek_align,
+            duration=current.duration,
+            epoch=current.epoch,
+            salt=current.salt,
+            mark=current.mark,
+        ),
+        direct,
+    ):
+        seek_hit = current.seek_indices
+    else:
+        for a, b, c in product(range(n), repeat=3):
+            product_v = (int(seed[a]) % seek_mod) * (int(seed[b]) % seek_mod) * (int(seed[c]) % seek_mod)
+            if go_round(product_v / align) * align == seek:
+                seek_hit = (a, b, c)
+                break
+    if seek_hit is None:
+        return None
+    return Formula(
+        path_index=path_index,
+        path_mod=current.path_mod,
+        seg_index=seg_index,
+        seg_mod=current.seg_mod,
+        seek_indices=tuple(seek_hit),
+        seek_mod=current.seek_mod,
+        seek_align=current.seek_align,
+        duration=current.duration,
+        epoch=current.epoch,
+        salt=current.salt,
+        mark=current.mark,
+    )

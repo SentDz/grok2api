@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 SCRIPT_SRC = re.compile(r"""(?:src|href)=["'](https://cdn\.grok\.com/_next/static/chunks/[^"']+\.js)["']""")
-SENTRY_RELEASE = re.compile(r"grok-web@([0-9a-f]{7,40})", re.I)
+SENTRY_RELEASE = re.compile(r"grok-web(?:@|%40)([0-9a-f]{7,40})", re.I)
 
 
 def extract_curve_paths(html: str) -> list[str]:
@@ -88,4 +88,6 @@ def extract_script_urls(html: str) -> list[str]:
 
 def extract_sentry_release(html: str) -> str:
     match = SENTRY_RELEASE.search(html)
-    return match.group(0) if match else ""
+    if not match:
+        return ""
+    return "grok-web@" + match.group(1)

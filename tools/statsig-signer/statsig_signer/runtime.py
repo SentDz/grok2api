@@ -17,7 +17,7 @@ HOT_DIR = PACKAGE_DIR.parent / "hot"
 HEX_JS = HOT_DIR / "hex.js"
 HEX_PY = HOT_DIR / "hex.py"
 WORKER_JS = HOT_DIR / "eval_worker.js"
-EVAL_TIMEOUT_SEC = 0.25
+EVAL_TIMEOUT_SEC = 3.0
 
 
 class HotRuntime:

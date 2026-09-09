@@ -9,8 +9,9 @@ from tempfile import TemporaryDirectory
 import os
 from unittest.mock import patch
 
-from statsig_signer.agent import _kernel, fixture_from_pair_file, update
-from statsig_signer.algorithm import Formula, decode_seed, inspect_statsig_id, valid_statsig_id
+from statsig_signer.agent import _hex_js_for_formula, _kernel, fixture_from_pair_file, update
+from statsig_signer.algorithm import Formula, compute_hex, decode_seed, encode_raw_std, inspect_statsig_id, valid_statsig_id
+from statsig_signer.recover import recover_formula
 from statsig_signer.runtime import HotRuntime
 from statsig_signer.store import Pair, Store
 
@@ -179,10 +180,234 @@ class RepairPipelineTest(unittest.TestCase):
                     use_hermes=True,
                     force_hermes=True,
                 )
-            self.assertEqual(calls["browsers"], ["local"])
+            self.assertGreaterEqual(len(calls["browsers"]), 1)
+            self.assertEqual(calls["browsers"][0], "local")
             self.assertTrue(result.get("ok"), result)
             self.assertTrue((result.get("accepted") or {}).get("ok"), result)
             self.assertIn("seed[5] % 4", (hot / "hex.js").read_text(encoding="utf-8"))
+
+    def test_write_hot_js_rejects_one_seed_and_returns_stable_hex_js(self) -> None:
+        paths = json.loads(PAIR_PATH.read_text(encoding="utf-8"))["paths"]
+        truth = Formula(path_index=5, seg_index=33, seek_indices=(1, 14, 37))
+        seed_a = bytes(range(48))
+        seed_b = bytes((i * 3 + 7) % 256 for i in range(48))
+        first = {
+            "ok": True,
+            "browser": "local",
+            "url": "https://grok.com/imagine",
+            "seed": encode_raw_std(seed_a),
+            "hex": compute_hex(seed_a, paths, truth),
+            "paths": paths,
+            "script_urls": [],
+            "chunks": [],
+        }
+        second = {
+            "ok": True,
+            "browser": "local",
+            "url": "https://grok.com/",
+            "seed": encode_raw_std(seed_b),
+            "hex": compute_hex(seed_b, paths, truth),
+            "paths": paths,
+            "script_urls": [],
+            "chunks": [],
+        }
+        one = recover_formula(seed_a, paths, first["hex"], Formula(path_index=0, seg_index=1, seek_indices=(0, 1, 2)))
+        self.assertEqual(one.status, "recovered")
+        self.assertNotEqual(compute_hex(seed_b, paths, one.formula), second["hex"])
+
+        captures = {"n": 0}
+
+        def fake_capture(**kwargs: object) -> dict:
+            captures["n"] += 1
+            url = str(kwargs.get("url") or "")
+            copied = dict(second if "imagine" not in url and captures["n"] > 1 else first)
+            if "imagine" not in url:
+                copied = dict(second)
+            copied["url"] = url or copied["url"]
+            return copied
+
+        calls = {"n": 0}
+
+        def complete_factory(*_args: object, **_kwargs: object):
+            def complete(messages, tools):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "c1",
+                                "type": "function",
+                                "function": {"name": "capture_page", "arguments": '{"browser":"local"}'},
+                            }
+                        ],
+                    }
+                if calls["n"] == 2:
+                    return {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "c2",
+                                "type": "function",
+                                "function": {"name": "recover_indices", "arguments": "{}"},
+                            }
+                        ],
+                    }
+                if calls["n"] == 3:
+                    recovered = json.loads(messages[-1]["content"])
+                    return {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "c3",
+                                "type": "function",
+                                "function": {
+                                    "name": "write_hot_js",
+                                    "arguments": json.dumps({"source": recovered["hex_js"]}),
+                                },
+                            }
+                        ],
+                    }
+                if calls["n"] == 4:
+                    rejected = json.loads(messages[-1]["content"])
+                    self.assertFalse(rejected.get("ok"), rejected)
+                    self.assertNotIn("hex_js", rejected)
+                    self.assertEqual(rejected.get("next"), "capture_page")
+                    return {"role": "assistant", "content": "need more pages"}
+                return {"role": "assistant", "content": "accepted"}
+
+            return complete
+
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            hot = tmp_path / "hot"
+            data = tmp_path / "data"
+            hot.mkdir()
+            shutil.copy(WORKER_JS, hot / "eval_worker.js")
+            sabotaged = CANONICAL_JS.read_text(encoding="utf-8").replace("seed[5] % 4", "seed[0] % 4", 1)
+            (hot / "hex.js").write_text(sabotaged, encoding="utf-8")
+            store = Store(data)
+            store.save_formula(Formula(path_index=0, seg_index=1, seek_indices=(0, 1, 2)))
+            runtime = HotRuntime(hot)
+            self.addCleanup(runtime.close)
+            os.environ["GROK2API_KEY"] = "test-key"
+            with patch("statsig_signer.agent.grok2api_complete", complete_factory):
+                result = update(
+                    store=store,
+                    runtime=runtime,
+                    defer_capture=True,
+                    capture_fn=fake_capture,
+                    use_hermes=True,
+                    force_hermes=True,
+                )
+            self.assertFalse(result.get("ok"), result)
+            self.assertIn("seed[0] % 4", (hot / "hex.js").read_text(encoding="utf-8"))
+
+    def test_verify_signature_fresh_page_must_match(self) -> None:
+        paths = json.loads(PAIR_PATH.read_text(encoding="utf-8"))["paths"]
+        stale = Formula(path_index=5, seg_index=33, seek_indices=(1, 9, 18))
+        truth = Formula(path_index=5, seg_index=33, seek_indices=(1, 14, 37))
+        seed_a = os.urandom(48)
+        seed_b = os.urandom(48)
+        first = {
+            "ok": True,
+            "browser": "local",
+            "url": "https://grok.com/imagine",
+            "seed": encode_raw_std(seed_a),
+            "hex": compute_hex(seed_a, paths, stale),
+            "paths": paths,
+            "script_urls": [],
+            "chunks": [],
+        }
+        second = {
+            "ok": True,
+            "browser": "local",
+            "url": "https://grok.com/",
+            "seed": encode_raw_std(seed_b),
+            "hex": compute_hex(seed_b, paths, truth),
+            "paths": paths,
+            "script_urls": [],
+            "chunks": [],
+        }
+        captures = {"n": 0}
+
+        def fake_capture(**kwargs: object) -> dict:
+            captures["n"] += 1
+            url = str(kwargs.get("url") or "")
+            copied = dict(second if "imagine" not in url else first)
+            copied["url"] = url or copied["url"]
+            return copied
+
+        calls = {"n": 0}
+
+        def complete_factory(*_args: object, **_kwargs: object):
+            def complete(messages, tools):
+                names = [item["function"]["name"] for item in tools]
+                self.assertIn("verify_signature", names)
+                self.assertIn("capture_page", names)
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "c1",
+                                "type": "function",
+                                "function": {"name": "capture_page", "arguments": '{"browser":"local"}'},
+                            }
+                        ],
+                    }
+                if calls["n"] == 2:
+                    return {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "c2",
+                                "type": "function",
+                                "function": {"name": "verify_signature", "arguments": "{}"},
+                            }
+                        ],
+                    }
+                verified = json.loads(messages[-1]["content"])
+                self.assertFalse(verified.get("ok"), verified)
+                self.assertFalse(verified.get("exit"), verified)
+                self.assertIn("新鲜页", verified.get("error") or "")
+                return {"role": "assistant", "content": "fresh page mismatch"}
+
+            return complete
+
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            hot = tmp_path / "hot"
+            data = tmp_path / "data"
+            hot.mkdir()
+            shutil.copy(WORKER_JS, hot / "eval_worker.js")
+            runtime = HotRuntime(hot)
+            self.addCleanup(runtime.close)
+            (hot / "hex.js").write_text(_hex_js_for_formula(stale, runtime), encoding="utf-8")
+            store = Store(data)
+            store.save_formula(stale)
+            store.save_pair(
+                Pair(
+                    seed=first["seed"],
+                    hex=first["hex"],
+                    paths=paths,
+                    source="test",
+                )
+            )
+            os.environ["GROK2API_KEY"] = "test-key"
+            with patch("statsig_signer.agent.grok2api_complete", complete_factory):
+                result = update(
+                    store=store,
+                    runtime=runtime,
+                    defer_capture=True,
+                    capture_fn=fake_capture,
+                    use_hermes=True,
+                    force_hermes=True,
+                )
+            self.assertGreaterEqual(captures["n"], 2)
+            self.assertNotEqual(result.get("stopped"), "exit")
+            self.assertEqual(result.get("content"), "fresh page mismatch")
 
     def test_agent_max_turns_is_200(self) -> None:
         os.environ["GROK2API_KEY"] = "test-key"
