@@ -75,6 +75,8 @@ def capture_x2api(
             "url": url,
             "seed": digest.get("seed") or "",
             "hex": digest.get("hex") or "",
+            "hex_from_tostring": digest.get("hexFromToString") or "",
+            "hex_agree": bool(digest.get("hexAgree")),
             "salt": digest.get("salt") or "",
             "prefix": digest.get("prefix") or "",
             "paths": paths,

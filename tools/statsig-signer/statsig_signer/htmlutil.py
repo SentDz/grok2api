@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, Iterable
 
 SCRIPT_SRC = re.compile(r"""(?:src|href)=["'](https://cdn\.grok\.com/_next/static/chunks/[^"']+\.js)["']""")
 SENTRY_RELEASE = re.compile(r"grok-web(?:@|%40)([0-9a-f]{7,40})", re.I)
@@ -91,3 +92,10 @@ def extract_sentry_release(html: str) -> str:
     if not match:
         return ""
     return "grok-web@" + match.group(1)
+
+
+def chunks_hash(urls: Iterable[str]) -> str:
+    names = sorted({str(url).rsplit("/", 1)[-1] for url in urls if str(url).strip()})
+    if not names:
+        return ""
+    return hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()

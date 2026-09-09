@@ -41,8 +41,8 @@ export GROK2API_KEY=...
 export GROK2API_MODEL=grok-4.6
 python3 -m statsig_signer update --browser local
 python3 -m statsig_signer update --defer-capture   # 让 agent 自己 capture_page
-python3 -m statsig_signer watch --once --deep      # 对照前端指纹
-python3 -m statsig_signer watch --interval 300 --repair
+python3 -m statsig_signer watch --once             # HTML 指纹：sentry SHA / curves / chunks 哈希
+python3 -m statsig_signer watch --interval 60 --repair
 ```
 
 用已有抓包测 Hermes：
@@ -63,7 +63,7 @@ python3 -m statsig_signer update --fixture data/pair.json --force-hermes
 
 ## 前端监测
 
-`watch` 比较 sentry-release、curves 哈希、签名 chunk。默认先 GET HTML；`--deep` 用浏览器抓官方 HEX 再和热代码对照。`--repair` 在变化或 HEX 对不上时跑 agent 更新。指纹存在 `data/frontend_fingerprint.json`。
+`watch` 默认每 60 秒 GET `https://grok.com/imagine`（无 ETag，必须拉全文）。对照 `sentry-release` git SHA、HTML 里的 curves 哈希、全部 chunk 文件名哈希。这三项在 `/` 和 `/imagine` 上 sentry/curves 一致；chunk 集合按页会差 1 个，所以探针固定 `/imagine`。不要用最后 12 个文件名，也不要拿 HTML 脚本列表去对 Playwright 的 signer URL。`--repair` 只在指纹变化时跑 agent；agent 自己抓包验 HEX。`--deep` 仍可强制浏览器对官方 HEX。
 
 ## 当前 computeHex（2026-09-09）
 

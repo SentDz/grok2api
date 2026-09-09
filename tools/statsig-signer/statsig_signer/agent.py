@@ -230,6 +230,8 @@ def _kernel(
         keyframes = ((anims[0] or {}).get("keyframes") if anims else []) or []
         return {
             "official_hex": captured.get("hex"),
+            "hex_from_tostring": captured.get("hex_from_tostring") or "",
+            "hex_agree": bool(captured.get("hex_agree")),
             "hex_len": len(captured.get("hex") or ""),
             "salt": captured.get("salt"),
             "prefix": captured.get("prefix") or "",
@@ -486,7 +488,7 @@ def _kernel(
     tools = [
         Tool(
             "capture_page",
-            "打开 grok.com/imagine，钩 digest 和 animate(4096)，抓同一页 seed、官方 HEX、4 条 curves。browser=local 或 x2api。",
+            "打开 grok.com/imagine。官方 HEX 来自 crypto.subtle.digest 里 salt 后的明文，并用 Number#toString(16) 交叉。animate(4096)/getAnimations 只提供 seek 提示。browser=local 或 x2api。",
             {
                 "type": "object",
                 "properties": {

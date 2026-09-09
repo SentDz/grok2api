@@ -309,6 +309,12 @@ class RepairPipelineTest(unittest.TestCase):
         truth = Formula(path_index=5, seg_index=33, seek_indices=(1, 14, 37))
         seed_a = os.urandom(48)
         seed_b = os.urandom(48)
+        for _ in range(32):
+            if compute_hex(seed_b, paths, stale) != compute_hex(seed_b, paths, truth):
+                break
+            seed_b = os.urandom(48)
+        else:
+            self.fail("could not find a seed where stale HEX differs from truth")
         first = {
             "ok": True,
             "browser": "local",

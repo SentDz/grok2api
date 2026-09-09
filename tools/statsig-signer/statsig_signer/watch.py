@@ -10,7 +10,7 @@ from typing import Any
 
 from .algorithm import curves_hash, decode_seed
 from .capture import capture, load_secrets
-from .htmlutil import extract_curve_paths, extract_script_urls, extract_sentry_release
+from .htmlutil import chunks_hash, extract_curve_paths, extract_script_urls, extract_sentry_release
 from .runtime import default_runtime
 from .store import Store, atomic_write_json
 
@@ -27,25 +27,25 @@ def fingerprint_from_html(html: str) -> dict[str, Any]:
     return {
         "sentry_release": extract_sentry_release(html),
         "curves_hash": curves_hash(paths) if paths else "",
+        "chunks_hash": chunks_hash(scripts),
         "path_count": len(paths),
         "script_count": len(scripts),
-        "script_names": [url.rsplit("/", 1)[-1] for url in scripts[-12:]],
         "source": "html",
     }
 
 
 def fingerprint_from_capture(captured: dict[str, Any]) -> dict[str, Any]:
     paths = list(captured.get("paths") or [])
-    chunks = captured.get("signer_chunks") or []
+    scripts = list(captured.get("script_urls") or captured.get("chunks") or [])
     return {
         "sentry_release": captured.get("sentry_release") or "",
         "curves_hash": captured.get("curves_hash") or (curves_hash(paths) if paths else ""),
+        "chunks_hash": chunks_hash(scripts),
         "path_count": len(paths),
         "official_hex": captured.get("hex") or "",
         "hex_len": len(captured.get("hex") or ""),
         "salt": captured.get("salt") or "",
         "seek": ((captured.get("seeks") or [{}])[0] or {}).get("value"),
-        "signer_urls": [item.get("url") for item in chunks if item.get("url")],
         "source": "capture",
         "ok": bool(captured.get("ok")),
     }
@@ -56,16 +56,21 @@ def should_backoff_repair(previous: dict[str, Any] | None, changed: bool) -> boo
 
 
 def compare_fingerprints(previous: dict[str, Any] | None, current: dict[str, Any]) -> list[str]:
+    """Compare deploy markers that exist in HTML. Ignore last-12 filenames and signer_urls.
+
+    grok.com HTML already has sentry-release (git SHA), escaped curves, and content-hashed
+    chunk names. Index-only JS changes still rename chunks. HTML vs Playwright fingerprints
+    must not compare different URL lists or every deep tick looks like a deploy.
+    """
     if not previous:
         return ["first_seen"]
     changes: list[str] = []
-    for key in ("sentry_release", "curves_hash", "salt"):
+    for key in ("sentry_release", "curves_hash"):
         if previous.get(key) and current.get(key) and previous.get(key) != current.get(key):
             changes.append(key)
-    prev_urls = previous.get("signer_urls") or previous.get("script_names") or []
-    curr_urls = current.get("signer_urls") or current.get("script_names") or []
-    if prev_urls and curr_urls and prev_urls != curr_urls:
-        changes.append("chunks")
+    if previous.get("chunks_hash") and current.get("chunks_hash") and previous.get("source") == current.get("source"):
+        if previous.get("chunks_hash") != current.get("chunks_hash"):
+            changes.append("chunks")
     return changes
 
 
@@ -205,7 +210,7 @@ def tick(
     return report
 
 
-def watch_loop(interval: int = 300, repair: bool = False, deep_every: int = 6, browser: str = "local") -> None:
+def watch_loop(interval: int = 60, repair: bool = False, deep_every: int = 0, browser: str = "local") -> None:
     store = Store()
     n = 0
     while True:

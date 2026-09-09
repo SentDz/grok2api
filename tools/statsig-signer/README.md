@@ -75,6 +75,20 @@ python3 -m statsig_signer update --browser x2api
 
 不要把 Playwright / x2api 接到生产签名路径。生产只跑 `serve`。
 
+## 发版监测
+
+grok.com HTML 里已经有发版标记，不必每轮开浏览器：
+
+- `meta baggage` 的 `sentry-release=grok-web@<git sha>`（发版必变）
+- RSC 里的 `\"curves\":`（4 组 SVG 控制点）
+- `cdn.grok.com/_next/static/chunks/*.js` 文件名集合的哈希（内容哈希命名，JS 一变就变）
+
+```bash
+python3 -m statsig_signer watch --interval 60 --repair
+```
+
+默认 60 秒 GET `/imagine`。sentry / curves / chunks 任一变化才跑 Hermes。不要用最后 12 个 chunk 名，也不要把 HTML 脚本列表和 Playwright 抓到的 signer URL 交叉比较。`--deep-every 0` 表示识别只靠 HTML；HEX 对错由 repair 自己抓包验证。
+
 ## 测试
 
 ```bash
