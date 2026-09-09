@@ -120,6 +120,9 @@ type segmentedSelectorConfigDTO struct {
 }
 
 type auditConfigDTO struct {
+	VideoDiagnosticsEnabled             *bool `json:"videoDiagnosticsEnabled,omitempty"`
+	VideoDiagnosticsCleanupIntervalDays *int  `json:"videoDiagnosticsCleanupIntervalDays,omitempty"`
+
 	BufferSize    int    `json:"bufferSize"`
 	BatchSize     int    `json:"batchSize"`
 	FlushInterval string `json:"flushInterval"`
@@ -244,6 +247,8 @@ func (value settingsConfigDTO) toApplication() settingsapp.EditableConfig {
 			AccountIsolatedConnectionsProvided:  value.Routing.AccountIsolatedConnections != nil,
 		},
 		Audit: settingsapp.AuditConfig{
+			VideoDiagnosticsEnabled: boolValue(value.Audit.VideoDiagnosticsEnabled), VideoDiagnosticsEnabledProvided: value.Audit.VideoDiagnosticsEnabled != nil,
+			VideoDiagnosticsCleanupIntervalDays: intValue(value.Audit.VideoDiagnosticsCleanupIntervalDays), VideoDiagnosticsCleanupIntervalDaysProvided: value.Audit.VideoDiagnosticsCleanupIntervalDays != nil,
 			BufferSize: value.Audit.BufferSize, BatchSize: value.Audit.BatchSize, FlushInterval: value.Audit.FlushInterval, CommitDelayMS: value.Audit.CommitDelayMS,
 			RetentionDays: intValue(value.Audit.RetentionDays), RetentionDaysProvided: value.Audit.RetentionDays != nil,
 		},
@@ -337,6 +342,7 @@ func newSettingsResponse(value settingsapp.Snapshot) settingsResponse {
 				},
 			},
 			Audit: auditConfigDTO{
+				VideoDiagnosticsEnabled: boolPointer(config.Audit.VideoDiagnosticsEnabled), VideoDiagnosticsCleanupIntervalDays: intPointer(config.Audit.VideoDiagnosticsCleanupIntervalDays),
 				BufferSize: config.Audit.BufferSize, BatchSize: config.Audit.BatchSize, FlushInterval: config.Audit.FlushInterval, CommitDelayMS: config.Audit.CommitDelayMS,
 				RetentionDays: intPointer(config.Audit.RetentionDays),
 			},

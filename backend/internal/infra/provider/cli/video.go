@@ -181,6 +181,7 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
+	provider.ReportVideoStep(ctx, "submit_video")
 	createResp, createErr := a.doVideoJSON(ctx, credential, accessToken, http.MethodPost, primaryBase, "/videos/generations", body, buildVideoRequestProfile, true)
 	if createErr == nil {
 		jobID, parseErr := parseVideoCreateResponse(createResp)
@@ -226,6 +227,7 @@ func (a *Adapter) generateVideoOnXAI(ctx context.Context, request provider.Video
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
 	base := a.fallbackBaseURL()
+	provider.ReportVideoStep(ctx, "submit_video")
 	createResp, err := a.doVideoJSON(ctx, credential, accessToken, http.MethodPost, base, "/videos/generations", body, xaiVideoRequestProfile, true)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
@@ -358,6 +360,7 @@ func (a *Adapter) pollVideoJob(ctx context.Context, credential account.Credentia
 	ticker := time.NewTicker(buildVideoPollEvery)
 	defer ticker.Stop()
 	for {
+		provider.ReportVideoStep(ctx, "poll_video")
 		statusBody, err := a.doVideoJSON(ctx, credential, accessToken, http.MethodGet, base, "/videos/"+url.PathEscape(jobID), nil, profile, false)
 		if err != nil {
 			return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePoll, 0, err)
@@ -372,6 +375,7 @@ func (a *Adapter) pollVideoJob(ctx context.Context, credential account.Credentia
 				if issuer == nil {
 					return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePoll, 0, fmt.Errorf("XAI 视频需要媒体上传接收服务"))
 				}
+				provider.ReportVideoStep(ctx, "wait_video_upload")
 				contentType, waitErr := issuer.WaitVideoUpload(ctx, assetID)
 				if waitErr != nil {
 					// 上游 done 但本地未收到上传：若 status 带 CDN URL 仍可回退远程读取。

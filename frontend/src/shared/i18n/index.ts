@@ -5,6 +5,24 @@ const resources = {
   "zh-CN": {
     translation: {
       appName: "Grok2API",
+      videoTask: {
+        settingsTitle: "视频任务日志", enabled: "记录视频任务日志", enabledHelp: "保存后立即生效。关闭后停止记录执行步骤和详细错误，已有记录按清理周期保留。",
+        cleanupDays: "清理周期（天）", cleanupDaysHelp: "每 1–365 天清空一次已结束任务的诊断日志，默认 7 天。保留视频和任务信息，跳过运行中任务；关闭记录后仍会清理。",
+        recordingDisabled: "视频任务日志记录已关闭",
+        title: "任务状态", unknown: "未记录执行阶段", noHistory: "暂无步骤记录，可能未开启记录、已到期清理，或任务执行于升级前。",
+        stageElapsed: "当前步骤耗时", totalElapsed: "任务总耗时", account: "执行账号", attempts: "已尝试次数", attempt: "第 {{count}} 次尝试",
+        provider: "渠道 / 上游模型", egress: "出口节点", direct: "直连", updatedAt: "最近更新", leaseUntil: "执行租约到期", requestId: "请求 ID",
+        history: "执行记录（最近 128 步）", error: "任务错误", stale: "已 {{duration}} 没有新的阶段或进度记录，任务仍未结束。",
+        leaseExpired: "执行租约已到期，尚未收到恢复执行记录。",
+        stages: {
+          queued: "等待任务调度", load_route: "读取模型路由", wait_input_slot: "等待参考素材处理名额", resolve_inputs: "读取本地参考素材",
+          wait_account: "等待可用账号与并发名额", prepare_account: "检查账号凭据", prepare_provider: "准备上游请求", acquire_egress: "准备出口与浏览器会话",
+          load_image: "读取 / 下载参考图", upload_image: "上传参考图到 Grok", create_post: "创建媒体 Post", prepare_audio: "准备 / 上传参考音频",
+          validate_video: "校验视频参数", submit_video: "提交视频生成请求", wait_generation: "等待上游生成结果", poll_video: "轮询视频结果",
+          load_source_video: "读取待延长视频", upload_source_video: "上传待延长视频", wait_video_upload: "等待上游回传视频",
+          download_video: "下载生成视频", save_video: "保存视频文件", retry: "准备重试", finalize: "保存完成状态", await_recovery: "等待恢复执行",
+        },
+      },
       webAccountSettings: {
         menu: "账号设置",
         acceptTerms: "接受服务协议",
@@ -1452,6 +1470,24 @@ const resources = {
   en: {
     translation: {
       appName: "Grok2API",
+      videoTask: {
+        settingsTitle: "Video task logs", enabled: "Record video task logs", enabledHelp: "Applies immediately on save. Disabling stops recording steps and detailed errors; existing logs remain until scheduled cleanup.",
+        cleanupDays: "Cleanup interval (days)", cleanupDaysHelp: "Clear diagnostic logs of finished tasks every 1–365 days, default 7. Videos and task records remain. Active tasks are skipped; cleanup also runs while recording is disabled.",
+        recordingDisabled: "Video task logging is disabled",
+        title: "Task status", unknown: "Execution stage unavailable", noHistory: "No step records. Logging may have been disabled, logs cleared, or the task executed before the upgrade.",
+        stageElapsed: "Step elapsed", totalElapsed: "Total elapsed", account: "Account", attempts: "Attempts", attempt: "Attempt {{count}}",
+        provider: "Provider / upstream model", egress: "Egress node", direct: "Direct", updatedAt: "Last update", leaseUntil: "Execution lease expires", requestId: "Request ID",
+        history: "Execution history (last 128 steps)", error: "Task error", stale: "No new stage or progress recorded for {{duration}}. The task has not finished.",
+        leaseExpired: "The execution lease has expired. No recovery activity has been recorded yet.",
+        stages: {
+          queued: "Waiting for a worker", load_route: "Loading model route", wait_input_slot: "Waiting for input processing capacity", resolve_inputs: "Reading local inputs",
+          wait_account: "Waiting for account capacity", prepare_account: "Checking credentials", prepare_provider: "Preparing upstream request", acquire_egress: "Preparing egress and browser session",
+          load_image: "Reading / downloading reference image", upload_image: "Uploading reference image to Grok", create_post: "Creating media post", prepare_audio: "Preparing / uploading reference audio",
+          validate_video: "Validating video parameters", submit_video: "Submitting video request", wait_generation: "Waiting for generation results", poll_video: "Polling video results",
+          load_source_video: "Reading source video", upload_source_video: "Uploading source video", wait_video_upload: "Waiting for upstream video upload",
+          download_video: "Downloading generated video", save_video: "Saving video file", retry: "Preparing retry", finalize: "Saving completion status", await_recovery: "Waiting for recovery",
+        },
+      },
       webAccountSettings: {
         menu: "Account settings",
         acceptTerms: "Accept terms",

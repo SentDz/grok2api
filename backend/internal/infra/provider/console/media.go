@@ -623,6 +623,7 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 	case provider.VideoOperationExtend:
 		createPath = "/videos/extensions"
 	}
+	provider.ReportVideoStep(ctx, "submit_video")
 	created, err := a.doConsoleVideoJSON(ctx, request.Credential, token, lease, http.MethodPost, consoleV1Endpoint(baseURL, createPath), body)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
@@ -637,6 +638,7 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 	ticker := time.NewTicker(consoleVideoPollEvery)
 	defer ticker.Stop()
 	for {
+		provider.ReportVideoStep(ctx, "poll_video")
 		statusBody, pollErr := a.doConsoleVideoJSON(ctx, request.Credential, token, lease, http.MethodGet, consoleV1Endpoint(baseURL, "/videos/"+url.PathEscape(requestID)), nil)
 		if pollErr != nil {
 			return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePoll, 0, pollErr)

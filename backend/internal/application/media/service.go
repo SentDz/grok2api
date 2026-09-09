@@ -44,6 +44,9 @@ type Service struct {
 	cleanupLock   repository.DistributedLock
 	publicBaseURL string
 	configMu      sync.RWMutex
+
+	videoDiagnosticsEnabled bool
+
 	maxImageBytes int64
 	maxTotalBytes int64
 	cleanupAt     int
@@ -55,6 +58,7 @@ type Service struct {
 }
 
 type Config struct {
+	VideoDiagnosticsEnabled bool
 	PublicBaseURL           string
 	MaxImageBytes           int64
 	MaxTotalBytes           int64
@@ -82,7 +86,8 @@ func NewService(assets repository.MediaAssetRepository, jobs repository.MediaJob
 // NewServiceWithTickets 构造包含视频上传票据能力的媒体服务。
 func NewServiceWithTickets(assets repository.MediaAssetRepository, jobs repository.MediaJobRepository, tickets repository.MediaUploadTicketRepository, objects repository.MediaObjectStorage, cleanupLock repository.DistributedLock, cfg Config) *Service {
 	return &Service{
-		assets: assets, jobs: jobs, tickets: tickets, objects: objects, cleanupLock: cleanupLock,
+		videoDiagnosticsEnabled: cfg.VideoDiagnosticsEnabled,
+		assets:                  assets, jobs: jobs, tickets: tickets, objects: objects, cleanupLock: cleanupLock,
 		publicBaseURL: strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/"), maxImageBytes: cfg.MaxImageBytes,
 		maxTotalBytes: cfg.MaxTotalBytes, cleanupAt: cfg.CleanupThresholdPercent, cleanupEvery: cfg.CleanupInterval,
 		cleanupSignal: make(chan struct{}, 1), configChanged: make(chan struct{}, 1),
@@ -92,6 +97,7 @@ func NewServiceWithTickets(assets repository.MediaAssetRepository, jobs reposito
 // UpdateConfig 热更新媒体容量和清理策略，不重建底层存储实例。
 func (s *Service) UpdateConfig(cfg Config) {
 	s.configMu.Lock()
+	s.videoDiagnosticsEnabled = cfg.VideoDiagnosticsEnabled
 	s.publicBaseURL = strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
 	s.maxImageBytes = cfg.MaxImageBytes
 	s.maxTotalBytes = cfg.MaxTotalBytes
@@ -274,6 +280,37 @@ func (s *Service) OpenImage(ctx context.Context, id string) (mediadomain.Asset, 
 // AdminListImages 分页返回图片资源列表。
 func (s *Service) AdminListImages(ctx context.Context, page, pageSize int, search string) ([]mediadomain.Asset, int64, error) {
 	return s.assets.ListMediaAssets(ctx, repository.MediaAssetListQuery{Page: mediaPageQuery(page, pageSize, search, repository.SortQuery{})})
+}
+
+// AdminGetVideoJob returns diagnostic metadata without loading reference inputs.
+func (s *Service) AdminGetVideoJob(ctx context.Context, id string) (mediadomain.Job, error) {
+	if s.jobs == nil {
+		return mediadomain.Job{}, ErrMediaJobsUnavailable
+	}
+	jobs, err := s.jobs.GetMediaJobsByIDs(ctx, []string{strings.TrimSpace(id)})
+	if err != nil {
+		return mediadomain.Job{}, err
+	}
+	if len(jobs) == 0 {
+		return mediadomain.Job{}, repository.ErrNotFound
+	}
+	return jobs[0], nil
+}
+
+func (s *Service) VideoDiagnosticsEnabled() bool {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+	return s.videoDiagnosticsEnabled
+}
+
+func (s *Service) CleanupVideoDiagnostics(ctx context.Context, intervalDays int) (int64, error) {
+	if s.jobs == nil {
+		return 0, ErrMediaJobsUnavailable
+	}
+	if intervalDays < 1 || intervalDays > 365 {
+		return 0, ErrInvalidFilter
+	}
+	return s.jobs.CleanupVideoDiagnostics(ctx, time.Now().UTC(), time.Duration(intervalDays)*24*time.Hour, 500)
 }
 
 // AdminListVideoJobs 分页返回视频任务列表。
@@ -624,8 +661,9 @@ func (s *Service) runtimeConfig() Config {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
 	return Config{
-		PublicBaseURL: s.publicBaseURL,
-		MaxImageBytes: s.maxImageBytes, MaxTotalBytes: s.maxTotalBytes,
+		VideoDiagnosticsEnabled: s.videoDiagnosticsEnabled,
+		PublicBaseURL:           s.publicBaseURL,
+		MaxImageBytes:           s.maxImageBytes, MaxTotalBytes: s.maxTotalBytes,
 		CleanupThresholdPercent: s.cleanupAt, CleanupInterval: s.cleanupEvery,
 	}
 }

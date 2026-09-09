@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	mediaapp "github.com/chenyme/grok2api/backend/internal/application/media"
 	"github.com/chenyme/grok2api/backend/internal/pkg/mediafile"
@@ -43,6 +44,7 @@ func (h *Handler) RegisterAdmin(router *gin.RouterGroup) {
 	router.GET("/media/videos", h.listVideos)
 	router.DELETE("/media/videos", h.deleteVideos)
 	router.GET("/media/videos/stats", h.videoStats)
+	router.GET("/media/videos/:jobId", h.videoDetail)
 }
 
 type deleteImagesRequest struct {
@@ -189,24 +191,29 @@ func (h *Handler) listVideos(c *gin.Context) {
 	}
 	items := make([]mediaJobDTO, 0, len(jobs))
 	for _, j := range jobs {
-		var completedAt *string
-		assetID := ""
-		if j.CompletedAt != nil {
-			formatted := j.CompletedAt.Format("2006-01-02T15:04:05Z")
-			completedAt = &formatted
-		}
-		if j.Status == "completed" {
-			assetID = j.ResultAssetID
-		}
-		items = append(items, mediaJobDTO{
-			ID: j.ID, Model: j.Model, Prompt: j.Prompt, Status: string(j.Status),
-			Progress: j.Progress, Seconds: j.Seconds, Size: j.Size, Quality: j.Quality,
-			AccountName: j.AccountName, ClientKeyName: j.ClientKeyName,
-			CreatedAt:   j.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			CompletedAt: completedAt, ErrorMessage: j.ErrorMessage, AssetID: assetID,
-		})
+		items = append(items, toMediaJobDTO(j))
 	}
 	response.Success(c, http.StatusOK, gin.H{"items": items, "page": page, "pageSize": pageSize, "total": total})
+}
+
+func (h *Handler) videoDetail(c *gin.Context) {
+	j, err := h.service.AdminGetVideoJob(c.Request.Context(), c.Param("jobId"))
+	if errors.Is(err, repository.ErrNotFound) {
+		response.Error(c, http.StatusNotFound, "videoJobNotFound", "视频任务不存在")
+		return
+	}
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "videoJobDetailFailed", "读取视频任务详情失败")
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	response.Success(c, http.StatusOK, videoJobDetailDTO{
+		DiagnosticsEnabled: h.service.VideoDiagnosticsEnabled(),
+		mediaJobDTO:        toMediaJobDTO(j), RequestID: j.RequestID, Provider: j.Provider,
+		UpstreamModel: j.UpstreamModel, AccountID: j.AccountID,
+		EgressNodeName: j.EgressNodeName, EgressMode: j.EgressMode, ErrorCode: j.ErrorCode,
+		UpdatedAt: j.UpdatedAt, LeaseUntil: j.LeaseUntil, ServerTime: time.Now().UTC(), Diagnostics: j.Diagnostics,
+	})
 }
 
 func (h *Handler) videoStats(c *gin.Context) {

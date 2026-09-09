@@ -26,4 +26,32 @@ export type MediaJobDTO = {
 };
 
 export type ImageStatsDTO = { totalImages: number; totalBytes: number };
+
+export type VideoTaskEvent = {
+  stage: string;
+  startedAt: string;
+  finishedAt: string | null;
+  attempt: number;
+  accountId: number;
+  accountName: string;
+  itemIndex: number;
+  itemTotal: number;
+  error: string;
+  httpStatus: number;
+};
+
+export type VideoJobDetailDTO = MediaJobDTO & {
+  diagnosticsEnabled: boolean;
+  requestId: string;
+  provider: string;
+  upstreamModel: string;
+  accountId: number;
+  egressNodeName: string;
+  egressMode: string;
+  errorCode: string;
+  updatedAt: string;
+  leaseUntil: string | null;
+  serverTime: string;
+  diagnostics: { attempt: number; events: VideoTaskEvent[] | null };
+};
 export type VideoStatsDTO = { totalJobs: number; completed: number; failed: number; inProgress: number; queued: number };

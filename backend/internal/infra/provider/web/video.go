@@ -270,6 +270,7 @@ func (a *Adapter) generateLegacyVideo(ctx context.Context, request provider.Vide
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
+	provider.ReportVideoStep(ctx, "acquire_egress")
 	lease, err := a.egress.AcquireCredential(ctx, domainegress.ScopeWeb, request.Credential)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
@@ -286,13 +287,14 @@ func (a *Adapter) generateLegacyVideo(ctx context.Context, request provider.Vide
 		}
 	}
 	references := make([]string, 0, len(rawReferences))
-	for _, rawReference := range rawReferences {
-		reference, referenceErr := a.prepareVideoReference(ctx, cfg, lease, token, rawReference)
+	for index, rawReference := range rawReferences {
+		reference, referenceErr := a.prepareVideoReference(provider.WithVideoItem(ctx, index+1, len(rawReferences)), cfg, lease, token, rawReference)
 		if referenceErr != nil {
 			return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(referenceErr), 0, referenceErr)
 		}
 		references = append(references, reference)
 	}
+	provider.ReportVideoStep(ctx, "create_post")
 	if len(references) > 0 {
 		parentID, err = a.createMediaPost(ctx, cfg, lease, token, "MEDIA_POST_TYPE_IMAGE", references[0], "", "video_reference_media_post")
 	} else {
@@ -301,6 +303,7 @@ func (a *Adapter) generateLegacyVideo(ctx context.Context, request provider.Vide
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 	}
+	provider.ReportVideoStep(ctx, "validate_video")
 	if len(videoSegments(request.Duration)) == 0 {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, fmt.Errorf("duration 必须在 1 到 15 秒之间"))
 	}
@@ -315,6 +318,7 @@ func (a *Adapter) generateLegacyVideo(ctx context.Context, request provider.Vide
 		resolution = "720p"
 	}
 	payload := videoCreatePayload(request.Prompt, parentID, ratio, resolution, segments[0], references)
+	provider.ReportVideoStep(ctx, "submit_video")
 	response, err := a.postJSON(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
@@ -329,6 +333,7 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
+	provider.ReportVideoStep(ctx, "acquire_egress")
 	lease, err := a.egress.AcquireCredential(ctx, domainegress.ScopeWeb, request.Credential)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
@@ -347,7 +352,7 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 	imageAssetID := ""
 	referenceAssetIDs := make([]string, 0, len(request.ReferenceURLs))
 	parentID := ""
-	prepareReference := func(rawReference string) (string, error) {
+	prepareReference := func(ctx context.Context, rawReference string) (string, error) {
 		uploaded, referenceErr := a.prepareVideoAsset(ctx, cfg, lease, token, rawReference)
 		if referenceErr != nil {
 			return "", referenceErr
@@ -355,6 +360,7 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 		if uploaded.ID == "" {
 			return "", fmt.Errorf("上传视频参考图片后未返回资产 ID")
 		}
+		provider.ReportVideoStep(ctx, "create_post")
 		postID, postErr := a.createMediaPost(ctx, cfg, lease, token, "MEDIA_POST_TYPE_IMAGE", uploaded.URI, "", "video_reference_media_post")
 		if postErr != nil {
 			return "", postErr
@@ -365,26 +371,28 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 		return uploaded.ID, nil
 	}
 	if imageURL := strings.TrimSpace(request.ImageURL); imageURL != "" {
-		imageAssetID, err = prepareReference(imageURL)
+		imageAssetID, err = prepareReference(provider.WithVideoItem(ctx, 1, 1), imageURL)
 		if err != nil {
 			return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 		}
 	}
-	for _, rawReference := range request.ReferenceURLs {
-		assetID, referenceErr := prepareReference(rawReference)
+	for index, rawReference := range request.ReferenceURLs {
+		assetID, referenceErr := prepareReference(provider.WithVideoItem(ctx, index+1, len(request.ReferenceURLs)), rawReference)
 		if referenceErr != nil {
 			return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(referenceErr), 0, referenceErr)
 		}
 		referenceAssetIDs = append(referenceAssetIDs, assetID)
 	}
 	audioAssetIDs := make([]string, 0, len(request.ReferenceAudios))
-	for _, rawAudio := range request.ReferenceAudios {
+	for index, rawAudio := range request.ReferenceAudios {
+		provider.ReportVideoItemStep(ctx, "prepare_audio", index+1, len(request.ReferenceAudios))
 		assetID, audioErr := a.prepareVideoReferenceAudio(ctx, cfg, lease, token, rawAudio)
 		if audioErr != nil {
 			return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(audioErr), 0, audioErr)
 		}
 		audioAssetIDs = append(audioAssetIDs, assetID)
 	}
+	provider.ReportVideoStep(ctx, "validate_video")
 	if len(videoSegments(request.Duration)) == 0 {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, fmt.Errorf("duration 必须在 1 到 15 秒之间"))
 	}
@@ -401,6 +409,7 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 	if parentID != "" {
 		referer = cfg.BaseURL + "/imagine/post/" + parentID
 	}
+	provider.ReportVideoStep(ctx, "submit_video")
 	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second, referer)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
@@ -419,10 +428,12 @@ func (a *Adapter) extendVideoV15(ctx context.Context, cfg Config, lease *egress.
 	if request.VideoExtensionStartTime <= 0 {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, fmt.Errorf("Web 视频延长必须提供大于 0 的 video_extension_start_time"))
 	}
+	provider.ReportVideoStep(ctx, "load_source_video")
 	video, err := a.loadVideoExtensionInput(ctx, lease, request.VideoURL, 20<<20)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
+	provider.ReportVideoStep(ctx, "upload_source_video")
 	uploaded, err := a.uploadFileV2Direct(ctx, cfg, lease, token, video, cfg.BaseURL+"/imagine", imagineSelfUploadSource, "video_extension_upload")
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
@@ -430,11 +441,13 @@ func (a *Adapter) extendVideoV15(ctx context.Context, cfg Config, lease *egress.
 	if uploaded.URI == "" {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, fmt.Errorf("上传待延长视频后未返回 fileUri"))
 	}
+	provider.ReportVideoStep(ctx, "create_post")
 	postID, err := a.createMediaPost(ctx, cfg, lease, token, "MEDIA_POST_TYPE_VIDEO", uploaded.URI, "", "video_extension_media_post")
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 	}
 	payload := videoExtensionPayload(request.Prompt, postID, request.Duration, request.VideoExtensionStartTime)
+	provider.ReportVideoStep(ctx, "submit_video")
 	response, err := a.postJSONWithReferer(
 		ctx,
 		cfg,
@@ -517,6 +530,9 @@ func validateMP4Video(data []byte, declared string) error {
 }
 
 func (a *Adapter) finishVideoResponse(ctx context.Context, cfg Config, lease *egress.Lease, token string, response *http.Response, progress func(int)) (provider.VideoResult, error) {
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		provider.ReportVideoStep(ctx, "wait_generation")
+	}
 	result, postID, parseErr := parseVideoStream(response, progress)
 	_ = response.Body.Close()
 	if parseErr != nil {
@@ -609,6 +625,7 @@ func (a *Adapter) pollMediaPostVideo(ctx context.Context, cfg Config, lease *egr
 }
 
 func (a *Adapter) fetchMediaPostVideo(ctx context.Context, cfg Config, lease *egress.Lease, token, postID string) (provider.VideoResult, bool, error) {
+	provider.ReportVideoStep(ctx, "poll_video")
 	payload := map[string]any{"id": postID}
 	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/media/post/get", payload, 20*time.Second, cfg.BaseURL+"/imagine/post/"+postID)
 	if err != nil {
@@ -653,6 +670,7 @@ func (a *Adapter) fetchMediaPostVideo(ctx context.Context, cfg Config, lease *eg
 }
 
 func (a *Adapter) prepareVideoReference(ctx context.Context, cfg Config, lease *egress.Lease, token, value string) (string, error) {
+	provider.ReportVideoStep(ctx, "load_image")
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", fmt.Errorf("视频参考图片 URL 不能为空")
@@ -661,6 +679,7 @@ func (a *Adapter) prepareVideoReference(ctx context.Context, cfg Config, lease *
 	if err != nil {
 		return "", err
 	}
+	provider.ReportVideoStep(ctx, "upload_image")
 	uploaded, err := a.uploadFileV2Direct(ctx, cfg, lease, token, image, cfg.BaseURL+"/imagine", imagineSelfUploadSource, "video_reference_upload")
 	if err != nil {
 		return "", err
@@ -672,6 +691,7 @@ func (a *Adapter) prepareVideoReference(ctx context.Context, cfg Config, lease *
 }
 
 func (a *Adapter) prepareVideoAsset(ctx context.Context, cfg Config, lease *egress.Lease, token, value string) (uploadedFile, error) {
+	provider.ReportVideoStep(ctx, "load_image")
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return uploadedFile{}, fmt.Errorf("视频参考图片 URL 不能为空")
@@ -680,6 +700,7 @@ func (a *Adapter) prepareVideoAsset(ctx context.Context, cfg Config, lease *egre
 	if err != nil {
 		return uploadedFile{}, err
 	}
+	provider.ReportVideoStep(ctx, "upload_image")
 	uploaded, err := a.uploadFileV2Direct(ctx, cfg, lease, token, image, cfg.BaseURL+"/imagine", imagineSelfUploadSource, "video_reference_upload")
 	if err != nil {
 		return uploadedFile{}, err

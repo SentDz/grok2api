@@ -295,7 +295,11 @@ func ticketToDomain(row mediaUploadTicketModel) repository.MediaUploadTicket {
 }
 
 func (r *MediaJobRepository) CreateMediaJob(ctx context.Context, value media.Job) error {
-	return r.db.db.WithContext(ctx).Create(mediaJobFromDomain(value)).Error
+	query := r.db.db.WithContext(ctx)
+	if len(value.Diagnostics.Events) == 0 && value.Diagnostics.Attempt == 0 {
+		query = query.Omit("diagnostics")
+	}
+	return query.Create(mediaJobFromDomain(value)).Error
 }
 
 func (r *MediaJobRepository) GetMediaJob(ctx context.Context, id string, clientKeyID uint64) (media.Job, error) {
@@ -332,7 +336,10 @@ func (r *MediaJobRepository) UpdateMediaJob(ctx context.Context, value media.Job
 	}
 	// InputJSON and InputImageCount are immutable creation metadata. Progress and
 	// terminal updates must not resend a multi-megabyte Base64 payload.
-	result := query.Select("request_id", "client_key_name", "account_id", "account_name", "egress_node_id", "egress_node_name", "egress_scope", "egress_mode", "provider", "model", "model_route_id", "upstream_model", "prompt", "seconds", "size", "quality", "status", "progress", "upstream_url", "result_asset_id", "content_type", "error_code", "error_message", "lease_until", "claim_token", "updated_at", "completed_at", "usage_recorded_at").Updates(updates)
+	if !value.DiagnosticsDirty {
+		query = query.Omit("diagnostics")
+	}
+	result := query.Select("request_id", "client_key_name", "account_id", "account_name", "egress_node_id", "egress_node_name", "egress_scope", "egress_mode", "provider", "model", "model_route_id", "upstream_model", "prompt", "seconds", "size", "quality", "status", "progress", "diagnostics", "upstream_url", "result_asset_id", "content_type", "error_code", "error_message", "lease_until", "claim_token", "updated_at", "completed_at", "usage_recorded_at").Updates(updates)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -498,6 +505,7 @@ func mediaJobFromDomain(value media.Job) *mediaJobModel {
 		ResultAssetID: value.ResultAssetID, ContentType: value.ContentType, ErrorCode: value.ErrorCode, ErrorMessage: value.ErrorMessage,
 		LeaseUntil: value.LeaseUntil, ClaimToken: value.ClaimToken, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 		CompletedAt: value.CompletedAt, UsageRecordedAt: value.UsageRecordedAt,
+		Diagnostics: value.Diagnostics,
 	}
 }
 
@@ -525,6 +533,7 @@ func mediaJobToDomain(row mediaJobModel) media.Job {
 		ResultAssetID: row.ResultAssetID, ContentType: row.ContentType, ErrorCode: row.ErrorCode, ErrorMessage: row.ErrorMessage,
 		LeaseUntil: row.LeaseUntil, ClaimToken: row.ClaimToken, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 		CompletedAt: row.CompletedAt, UsageRecordedAt: row.UsageRecordedAt,
+		Diagnostics: row.Diagnostics,
 	}
 }
 

@@ -126,6 +126,11 @@ type SegmentedSelectorConfig struct {
 
 // AuditConfig 是管理接口使用的审计可编辑输入。
 type AuditConfig struct {
+	VideoDiagnosticsEnabled                     bool
+	VideoDiagnosticsEnabledProvided             bool
+	VideoDiagnosticsCleanupIntervalDays         int
+	VideoDiagnosticsCleanupIntervalDaysProvided bool
+
 	BufferSize            int
 	BatchSize             int
 	FlushInterval         string
@@ -438,7 +443,16 @@ func applyDomainConfig(base config.Config, value settingsdomain.Config) config.C
 	if value.Audit.RetentionDays != nil {
 		retentionDays = *value.Audit.RetentionDays
 	}
+	videoDiagnosticsEnabled := base.Audit.VideoDiagnosticsEnabled
+	if value.Audit.VideoDiagnosticsEnabled != nil {
+		videoDiagnosticsEnabled = *value.Audit.VideoDiagnosticsEnabled
+	}
+	videoDiagnosticsCleanupDays := base.Audit.VideoDiagnosticsCleanupIntervalDays
+	if value.Audit.VideoDiagnosticsCleanupIntervalDays != nil {
+		videoDiagnosticsCleanupDays = *value.Audit.VideoDiagnosticsCleanupIntervalDays
+	}
 	base.Audit = config.AuditConfig{
+		VideoDiagnosticsEnabled: videoDiagnosticsEnabled, VideoDiagnosticsCleanupIntervalDays: videoDiagnosticsCleanupDays,
 		BufferSize: value.Audit.BufferSize, BatchSize: value.Audit.BatchSize, FlushInterval: config.Duration(value.Audit.FlushInterval),
 		CommitDelay: config.Duration(commitDelay), RetentionDays: retentionDays,
 		LedgerMode: base.Audit.LedgerMode, LedgerFailureThreshold: base.Audit.LedgerFailureThreshold,
@@ -541,6 +555,7 @@ func toDomainConfig(value config.Config) settingsdomain.Config {
 			},
 		},
 		Audit: settingsdomain.AuditConfig{
+			VideoDiagnosticsEnabled: boolPointer(value.Audit.VideoDiagnosticsEnabled), VideoDiagnosticsCleanupIntervalDays: intPointer(value.Audit.VideoDiagnosticsCleanupIntervalDays),
 			BufferSize: value.Audit.BufferSize, BatchSize: value.Audit.BatchSize, FlushInterval: value.Audit.FlushInterval.Value(), CommitDelay: value.Audit.CommitDelay.Value(),
 			RetentionDays: intPointer(value.Audit.RetentionDays),
 		},
@@ -649,6 +664,12 @@ func mergeEditable(current config.Config, input EditableConfig) (config.Config, 
 	}
 	if input.Audit.RetentionDaysProvided {
 		next.Audit.RetentionDays = input.Audit.RetentionDays
+	}
+	if input.Audit.VideoDiagnosticsEnabledProvided {
+		next.Audit.VideoDiagnosticsEnabled = input.Audit.VideoDiagnosticsEnabled
+	}
+	if input.Audit.VideoDiagnosticsCleanupIntervalDaysProvided {
+		next.Audit.VideoDiagnosticsCleanupIntervalDays = input.Audit.VideoDiagnosticsCleanupIntervalDays
 	}
 	next.ClientKeyDefaults.RPMLimit = input.ClientKeyDefaults.RPMLimit
 	next.ClientKeyDefaults.MaxConcurrent = input.ClientKeyDefaults.MaxConcurrent
@@ -798,6 +819,8 @@ func toEditable(cfg config.Config) EditableConfig {
 			SegmentedSelectorProvided: true,
 		},
 		Audit: AuditConfig{
+			VideoDiagnosticsEnabled: cfg.Audit.VideoDiagnosticsEnabled, VideoDiagnosticsEnabledProvided: true,
+			VideoDiagnosticsCleanupIntervalDays: cfg.Audit.VideoDiagnosticsCleanupIntervalDays, VideoDiagnosticsCleanupIntervalDaysProvided: true,
 			BufferSize: cfg.Audit.BufferSize, BatchSize: cfg.Audit.BatchSize, FlushInterval: cfg.Audit.FlushInterval.String(), CommitDelayMS: int(cfg.Audit.CommitDelay.Value() / time.Millisecond),
 			RetentionDays: cfg.Audit.RetentionDays, RetentionDaysProvided: true,
 		},

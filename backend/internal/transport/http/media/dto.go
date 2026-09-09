@@ -1,5 +1,11 @@
 package media
 
+import (
+	"time"
+
+	mediadomain "github.com/chenyme/grok2api/backend/internal/domain/media"
+)
+
 type mediaAssetDTO struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
@@ -38,4 +44,39 @@ type videoStatsDTO struct {
 	Failed     int64 `json:"failed"`
 	InProgress int64 `json:"inProgress"`
 	Queued     int64 `json:"queued"`
+}
+
+type videoJobDetailDTO struct {
+	mediaJobDTO
+	DiagnosticsEnabled bool                         `json:"diagnosticsEnabled"`
+	RequestID          string                       `json:"requestId"`
+	Provider           string                       `json:"provider"`
+	UpstreamModel      string                       `json:"upstreamModel"`
+	AccountID          uint64                       `json:"accountId"`
+	EgressNodeName     string                       `json:"egressNodeName"`
+	EgressMode         string                       `json:"egressMode"`
+	ErrorCode          string                       `json:"errorCode"`
+	UpdatedAt          time.Time                    `json:"updatedAt"`
+	LeaseUntil         *time.Time                   `json:"leaseUntil"`
+	ServerTime         time.Time                    `json:"serverTime"`
+	Diagnostics        mediadomain.VideoDiagnostics `json:"diagnostics"`
+}
+
+func toMediaJobDTO(j mediadomain.Job) mediaJobDTO {
+	var completedAt *string
+	assetID := ""
+	if j.CompletedAt != nil {
+		formatted := j.CompletedAt.UTC().Format(time.RFC3339)
+		completedAt = &formatted
+	}
+	if j.Status == mediadomain.StatusCompleted {
+		assetID = j.ResultAssetID
+	}
+	return mediaJobDTO{
+		ID: j.ID, Model: j.Model, Prompt: j.Prompt, Status: string(j.Status),
+		Progress: j.Progress, Seconds: j.Seconds, Size: j.Size, Quality: j.Quality,
+		AccountName: j.AccountName, ClientKeyName: j.ClientKeyName,
+		CreatedAt:   j.CreatedAt.UTC().Format(time.RFC3339),
+		CompletedAt: completedAt, ErrorMessage: j.ErrorMessage, AssetID: assetID,
+	}
 }

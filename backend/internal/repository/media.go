@@ -63,6 +63,7 @@ type MediaJobRepository interface {
 	ListUnrecordedTerminalMediaJobs(ctx context.Context, limit int) ([]media.Job, error)
 	TryClaimMediaJob(ctx context.Context, id string, now, leaseUntil time.Time, claimToken string) (media.Job, bool, error)
 	MarkMediaJobUsageRecorded(ctx context.Context, id string, recordedAt time.Time) error
+	CleanupVideoDiagnostics(ctx context.Context, now time.Time, interval time.Duration, limit int) (int64, error)
 }
 
 // MediaAssetRepository 定义媒体资源元数据持久化能力。

@@ -144,6 +144,9 @@ type AuditConfig struct {
 	FlushInterval time.Duration
 	CommitDelay   time.Duration
 	RetentionDays *int
+
+	VideoDiagnosticsEnabled             *bool
+	VideoDiagnosticsCleanupIntervalDays *int
 }
 
 // ClientKeyDefaultsConfig 定义新建客户端密钥的默认限制。

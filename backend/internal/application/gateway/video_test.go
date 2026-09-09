@@ -861,6 +861,10 @@ func (r *videoUsageRepository) UpdateMediaJob(context.Context, media.Job) error 
 
 func (r *videoUsageRepository) DeleteMediaJob(context.Context, string) error { return nil }
 
+func (r *videoUsageRepository) CleanupVideoDiagnostics(context.Context, time.Time, time.Duration, int) (int64, error) {
+	return 0, nil
+}
+
 func (r *videoUsageRepository) ListMediaJobs(context.Context, repository.MediaJobListQuery) ([]media.Job, int64, error) {
 	return nil, 0, nil
 }
@@ -945,7 +949,8 @@ func (a *videoCreateFailoverAdapter) Definition() provider.Definition {
 	return definition
 }
 
-func (a *videoCreateFailoverAdapter) GenerateVideo(_ context.Context, request provider.VideoRequest) (provider.VideoResult, error) {
+func (a *videoCreateFailoverAdapter) GenerateVideo(ctx context.Context, request provider.VideoRequest) (provider.VideoResult, error) {
+	provider.ReportVideoItemStep(ctx, "upload_image", 1, 2)
 	a.mu.Lock()
 	a.attempts = append(a.attempts, request.Credential.ID)
 	remaining := a.failures[request.Credential.ID]
@@ -1045,6 +1050,7 @@ func TestVideoWebForbiddenRetriesPinnedAccountOnceThenFailsOver(t *testing.T) {
 	if err := mediaRepo.CreateMediaJob(ctx, job); err != nil {
 		t.Fatal(err)
 	}
+	service.UpdateVideoDiagnosticsEnabled(true)
 	service.runVideoJob(ctx, job, route)
 
 	if attempts := adapter.Attempts(); len(attempts) != 3 || attempts[0] != first.ID || attempts[1] != first.ID || attempts[2] != second.ID {
@@ -1056,6 +1062,21 @@ func TestVideoWebForbiddenRetriesPinnedAccountOnceThenFailsOver(t *testing.T) {
 	}
 	if stored.Status != media.StatusCompleted || stored.AccountID != second.ID || stored.ResultAssetID != "video_asset_00001" {
 		t.Fatalf("completed job = %#v", stored)
+	}
+	if stored.Diagnostics.Attempt != 3 {
+		t.Fatalf("diagnostic attempts = %d", stored.Diagnostics.Attempt)
+	}
+	failedSteps := 0
+	for _, event := range stored.Diagnostics.Events {
+		if event.Error != "" {
+			failedSteps++
+			if event.Stage != "upload_image" || event.HTTPStatus != 403 || event.AccountID != first.ID || event.FinishedAt == nil {
+				t.Fatalf("failed event = %#v", event)
+			}
+		}
+	}
+	if failedSteps != 2 || stored.Diagnostics.Current().Stage != "finalize" || stored.Diagnostics.Current().FinishedAt == nil {
+		t.Fatalf("retry diagnostics = %#v", stored.Diagnostics)
 	}
 
 	adapter.mu.Lock()
@@ -1400,6 +1421,7 @@ func TestPinnedOnlyVideoDoesNotFailOverOnCreateFailure(t *testing.T) {
 	if err := mediaRepo.CreateMediaJob(ctx, job); err != nil {
 		t.Fatal(err)
 	}
+	service.UpdateVideoDiagnosticsEnabled(true)
 	service.runVideoJob(ctx, job, route)
 
 	if attempts := adapter.Attempts(); len(attempts) != 1 || attempts[0] != first.ID {
@@ -1411,6 +1433,9 @@ func TestPinnedOnlyVideoDoesNotFailOverOnCreateFailure(t *testing.T) {
 	}
 	if stored.Status != media.StatusFailed || stored.AccountID != first.ID || stored.ResultAssetID != "" {
 		t.Fatalf("pinned failed job = %#v", stored)
+	}
+	if current := stored.Diagnostics.Current(); current == nil || current.Stage != "upload_image" || current.HTTPStatus != 403 || !strings.Contains(current.Error, "Forbidden") || current.FinishedAt == nil {
+		t.Fatalf("missing original failure diagnostic: %#v", current)
 	}
 
 	adapter.mu.Lock()

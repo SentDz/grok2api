@@ -247,6 +247,9 @@ type RoutingConfig struct {
 }
 
 type AuditConfig struct {
+	VideoDiagnosticsEnabled             bool `yaml:"videoDiagnosticsEnabled"`
+	VideoDiagnosticsCleanupIntervalDays int  `yaml:"videoDiagnosticsCleanupIntervalDays"`
+
 	BufferSize                  int      `yaml:"bufferSize"`
 	BatchSize                   int      `yaml:"batchSize"`
 	FlushInterval               Duration `yaml:"flushInterval"`
@@ -730,6 +733,9 @@ func (c Config) Validate() error {
 	if c.Audit.RetentionDays < 0 || c.Audit.RetentionDays > 365 {
 		return errors.New("audit.retentionDays 必须在 0 到 365 之间")
 	}
+	if c.Audit.VideoDiagnosticsCleanupIntervalDays < 1 || c.Audit.VideoDiagnosticsCleanupIntervalDays > 365 {
+		return errors.New("audit.videoDiagnosticsCleanupIntervalDays 必须在 1 到 365 之间")
+	}
 	if c.Audit.LedgerMode != "observe" && c.Audit.LedgerMode != "enforce" {
 		return errors.New("audit.ledgerMode 必须是 observe 或 enforce")
 	}
@@ -981,6 +987,7 @@ func defaultConfig() Config {
 			ReasoningReplayMaxEntries:   10240,
 		},
 		Audit: AuditConfig{
+			VideoDiagnosticsEnabled: false, VideoDiagnosticsCleanupIntervalDays: 7,
 			BufferSize: 16384, BatchSize: 256, FlushInterval: Duration(250 * time.Millisecond), CommitDelay: Duration(5 * time.Millisecond),
 			RetentionDays: 7,
 			LedgerMode:    "enforce", LedgerFailureThreshold: 1,

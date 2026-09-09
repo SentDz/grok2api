@@ -156,6 +156,16 @@ func TestMediaJobRepositoryKeepsLargeInputOffHotPaths(t *testing.T) {
 	if err := repository.CreateMediaJob(ctx, job); err != nil {
 		t.Fatal(err)
 	}
+	// Simulate an existing installation before the diagnostic column was added.
+	if err := database.db.Exec("DROP INDEX idx_media_jobs_diagnostics_cleanup").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.Exec("ALTER TABLE media_jobs DROP COLUMN diagnostics").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.InitializeSchema(ctx); err != nil {
+		t.Fatal(err)
+	}
 
 	polled, err := repository.GetMediaJob(ctx, job.ID, key.ID)
 	if err != nil || polled.InputJSON != "" || polled.InputImageCount != 1 {
@@ -170,9 +180,22 @@ func TestMediaJobRepositoryKeepsLargeInputOffHotPaths(t *testing.T) {
 		t.Fatalf("claimed input len=%d count=%d ok=%v err=%v", len(claimed.InputJSON), claimed.InputImageCount, ok, err)
 	}
 	claimed.Progress = 20
+	claimed.Diagnostics.Attempt = 1
+	claimed.DiagnosticsDirty = true
+	claimed.Diagnostics.Advance(mediadomain.VideoEvent{Stage: "upload_image", Attempt: 1, StartedAt: now, ItemIndex: 2, ItemTotal: 3})
 	claimed.InputJSON = `{"image_urls":["should-not-overwrite"]}`
 	if err := repository.UpdateMediaJob(ctx, claimed); err != nil {
 		t.Fatal(err)
+	}
+	details, err := repository.GetMediaJobsByIDs(ctx, []string{job.ID})
+	if err != nil || len(details) != 1 || details[0].Diagnostics.Current() == nil || details[0].Diagnostics.Current().ItemIndex != 2 {
+		t.Fatalf("diagnostics round trip = %#v, err=%v", details, err)
+	}
+	stale := claimed
+	stale.ClaimToken = "stale_claim_123456789"
+	stale.Diagnostics = mediadomain.VideoDiagnostics{}
+	if err := repository.UpdateMediaJob(ctx, stale); err == nil {
+		t.Fatal("stale worker overwrote diagnostic history")
 	}
 	var storedInput string
 	if err := database.db.WithContext(ctx).Model(&mediaJobModel{}).Where("id = ?", job.ID).Pluck("input_json", &storedInput).Error; err != nil || storedInput != job.InputJSON {

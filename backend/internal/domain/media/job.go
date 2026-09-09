@@ -76,6 +76,7 @@ type Job struct {
 	Quality         string
 	Status          Status
 	Progress        int
+	Diagnostics     VideoDiagnostics
 	InputJSON       string
 	InputImageCount int
 	UpstreamURL     string
@@ -90,4 +91,7 @@ type Job struct {
 	UpdatedAt       time.Time
 	CompletedAt     *time.Time
 	UsageRecordedAt *time.Time
+
+	// DiagnosticsDirty opts a write into updating diagnostic history.
+	DiagnosticsDirty bool
 }

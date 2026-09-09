@@ -1,4 +1,4 @@
-import type { MediaAssetDTO, ImageStatsDTO, MediaJobDTO, VideoStatsDTO } from "@/features/media/types";
+import type { MediaAssetDTO, ImageStatsDTO, MediaJobDTO, VideoJobDetailDTO, VideoStatsDTO } from "@/features/media/types";
 import { apiRequest, type PaginatedDTO } from "@/shared/api/client";
 import {
   createObjectDecoder,
@@ -9,6 +9,8 @@ import {
   isNumber,
   isString,
   isOneOf,
+  isArrayOf,
+  isBoolean,
 } from "@/shared/api/decoder";
 import type { SortOrder } from "@/shared/lib/table-sort";
 
@@ -93,6 +95,25 @@ export function listVideos(input: ListVideosInput): Promise<PaginatedDTO<MediaJo
 
 export function getVideoStats(): Promise<VideoStatsDTO> {
   return apiRequest("/api/admin/v1/media/videos/stats", {}, decodeVideoStats);
+}
+
+const nullableString = (value: unknown) => value === null || isString(value);
+const videoTaskEventShape = hasShape({
+  stage: isString, startedAt: isString, finishedAt: nullableString,
+  attempt: isNumber, accountId: isNumber, accountName: isString,
+  itemIndex: isNumber, itemTotal: isNumber, error: isString, httpStatus: isNumber,
+});
+const decodeVideoDetail = createObjectDecoder<VideoJobDetailDTO>("video detail", {
+  ...mediaJobShape,
+  diagnosticsEnabled: isBoolean,
+  requestId: isString, provider: isString, upstreamModel: isString, accountId: isNumber,
+  egressNodeName: isString, egressMode: isString, errorCode: isString,
+  updatedAt: isString, leaseUntil: nullableString, serverTime: isString,
+  diagnostics: hasShape({ attempt: isNumber, events: (value) => value === null || isArrayOf(videoTaskEventShape)(value) }),
+});
+
+export function getVideoDetail(id: string): Promise<VideoJobDetailDTO> {
+  return apiRequest(`/api/admin/v1/media/videos/${encodeURIComponent(id)}`, {}, decodeVideoDetail);
 }
 
 export function deleteVideos(ids: string[]): Promise<{ deleted: number }> {

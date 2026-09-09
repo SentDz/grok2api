@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, Clock, Eye, ListVideo, Loader2, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle2, Clock, Eye, ListVideo, Loader2, RefreshCw, Search, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +15,7 @@ import { Table, TableActionCell, TableActionHead, TableBody, TableCell, TableHea
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { deleteVideos, getVideoStats, listVideos } from "@/features/media/media-api";
 import type { MediaJobDTO, VideoStatsDTO } from "@/features/media/types";
+import { VideoTaskDialog } from "@/features/media/video-task-dialog";
 import { EmptyState, ErrorState, TableLoadingRow } from "@/shared/components/data-state";
 import { DataTableFilters } from "@/shared/components/data-table-filters";
 import { DataTableShell } from "@/shared/components/data-table-shell";
@@ -41,6 +42,7 @@ export function VideoGalleryPage() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [previewing, setPreviewing] = useState<MediaJobDTO | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [sort, setSort] = useState<TableSort>({ field: "createdAt", order: "desc" });
   const debouncedSearch = useDebouncedValue(search);
   const normalizedSearch = debouncedSearch.trim();
@@ -48,6 +50,7 @@ export function VideoGalleryPage() {
   const videosQuery = useQuery({
     queryKey: ["media", "videos", page, pageSize, statusFilter, normalizedSearch, sort.field, sort.order],
     queryFn: () => listVideos({ page, pageSize, status: statusFilter, search: normalizedSearch || undefined, sortBy: sort.field, sortOrder: sort.order }),
+    refetchInterval: (query) => query.state.data?.items.some((job) => !isTerminalVideoJob(job)) ? 5_000 : false,
   });
   const statsQuery = useQuery({
     queryKey: ["media", "videos", "stats"],
@@ -164,7 +167,7 @@ export function VideoGalleryPage() {
         {videosQuery.isError ? <ErrorState message={videosQuery.error.message} onRetry={() => void videosQuery.refetch()} /> : null}
         {result && result.items.length === 0 ? <EmptyState message={t("media.videos.empty")} /> : null}
         {videosQuery.isPending || (result && result.items.length > 0) ? (
-          <Table viewportRows={20} rowHeight={72} className="min-w-[1096px] table-fixed text-xs">
+          <Table viewportRows={20} rowHeight={72} className="min-w-[1136px] table-fixed text-xs">
             <colgroup>
               <col className="w-10" />
               <col className="w-64" />
@@ -173,7 +176,7 @@ export function VideoGalleryPage() {
               <col className="w-28" />
               <col className="w-40" />
               <col className="w-44" />
-              <col className="w-10" />
+              <col className="w-20" />
             </colgroup>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -184,7 +187,7 @@ export function VideoGalleryPage() {
                 <SortableTableHead field="spec" sortBy={sort.field} sortOrder={sort.order} onSort={changeSort}>{t("media.videos.spec")}</SortableTableHead>
                 <SortableTableHead field="account" sortBy={sort.field} sortOrder={sort.order} onSort={changeSort}>{t("media.videos.owner")}</SortableTableHead>
                 <SortableTableHead field="createdAt" sortBy={sort.field} sortOrder={sort.order} initialOrder="desc" onSort={changeSort}>{t("media.videos.time")}</SortableTableHead>
-                <TableActionHead />
+                <TableActionHead className="w-20 min-w-20" />
               </TableRow>
             </TableHeader>
             {videosQuery.isPending ? (
@@ -216,7 +219,13 @@ export function VideoGalleryPage() {
                     </div>
                   </TableCell>
                   <TableCell><VideoTimes job={job} locale={i18n.language} /></TableCell>
-                  <TableActionCell>
+                  <TableActionCell className="w-20 min-w-20 whitespace-nowrap">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => setDetailId(job.id)} aria-label={t("videoTask.title")}><Activity /></Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t("videoTask.title")}</TooltipContent>
+                    </Tooltip>
                     {job.status === "completed" ? (
                       <Button type="button" variant="ghost" size="icon" className="size-8" disabled={!job.assetId} title={job.assetId ? t("media.videos.preview") : t("media.videos.previewUnavailable")} onClick={() => setPreviewing(job)} aria-label={job.assetId ? t("media.videos.preview") : t("media.videos.previewUnavailable")}><Eye /></Button>
                     ) : null}
@@ -243,6 +252,8 @@ export function VideoGalleryPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <VideoTaskDialog jobId={detailId} onClose={() => setDetailId(null)} />
 
       <Dialog open={Boolean(previewing)} onOpenChange={(open) => !open && setPreviewing(null)}>
         <DialogContent className="max-h-[calc(100vh-2rem)] max-w-4xl overflow-hidden">

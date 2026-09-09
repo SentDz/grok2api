@@ -1,6 +1,10 @@
 package relational
 
-import "time"
+import (
+	"time"
+
+	"github.com/chenyme/grok2api/backend/internal/domain/media"
+)
 
 type adminModel struct {
 	ID           uint64    `gorm:"primaryKey;autoIncrement"`
@@ -439,6 +443,9 @@ type mediaJobModel struct {
 	Quality        string  `gorm:"size:32;not null;default:'';check:chk_media_jobs_quality,length(trim(quality)) BETWEEN 0 AND 32"`
 	Status         string  `gorm:"size:32;not null;check:chk_media_jobs_status,status IN ('queued','in_progress','completed','failed')"`
 	Progress       int     `gorm:"not null;check:chk_media_jobs_progress,progress BETWEEN 0 AND 100"`
+
+	Diagnostics media.VideoDiagnostics `gorm:"serializer:json;type:text;not null;default:'{}'"`
+
 	// InputJSON limit 33554432 must stay equal to media.MaxInputJSONBytes (GORM tags require literals).
 	InputJSON string `gorm:"type:text;not null;default:'{}';check:chk_media_jobs_input_json,length(input_json) <= 33554432"`
 	// InputImageCount upper bound 14 must stay equal to media.MaxPersistedInputImages.
@@ -459,6 +466,16 @@ type mediaJobModel struct {
 }
 
 func (mediaJobModel) TableName() string { return "media_jobs" }
+
+// One durable cursor keeps the diagnostic cleanup schedule across restarts.
+type videoDiagnosticsCleanupModel struct {
+	ID        uint64    `gorm:"primaryKey;autoIncrement:false"`
+	LastRunAt time.Time `gorm:"not null"`
+	Cutoff    *time.Time
+	AfterID   string `gorm:"size:64;not null;default:''"`
+}
+
+func (videoDiagnosticsCleanupModel) TableName() string { return "video_diagnostics_cleanup" }
 
 // MaxVideoAssetBytes 是本地视频对象与上传接收的安全体积上限（256 MiB）。
 const MaxVideoAssetBytes = 256 << 20

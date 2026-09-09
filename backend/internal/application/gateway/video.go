@@ -667,6 +667,10 @@ func (s *Service) processVideoJob(ctx context.Context, id string) {
 	if !claimed {
 		return
 	}
+	if current := job.Diagnostics.Current(); current != nil && current.FinishedAt == nil {
+		s.recordVideoDiagnosticFailure(&job, errors.New("Execution interrupted; task reclaimed after lease expiry"))
+	}
+	s.recordVideoStep(ctx, &job, "load_route", 0, 0)
 	var route model.Route
 	if job.ModelRouteID != 0 {
 		route, err = s.models.Get(ctx, job.ModelRouteID)
@@ -709,6 +713,10 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 	ctx, cancel := context.WithTimeout(parent, videoJobTimeout)
 	defer cancel()
 	ctx, egressTrace := infraegress.WithTrace(ctx)
+	ctx = provider.WithVideoStepReporter(ctx, func(stage string, index, total int) {
+		applyMediaJobEgress(&job, egressTrace, route.Provider)
+		s.recordVideoStep(ctx, &job, stage, index, total)
+	})
 	startedAt := time.Now()
 	job.Progress = max(job.Progress, 1)
 	job.UpdatedAt = time.Now().UTC()
@@ -720,6 +728,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 	if value := strings.TrimSpace(videoInput); value != "" {
 		inputReferences = append(inputReferences, value)
 	}
+	provider.ReportVideoStep(ctx, "wait_input_slot")
 	releaseInputSlot, err := s.acquireVideoInputSlot(ctx, inputReferences)
 	if err != nil {
 		s.deferVideoJob(parent, job)
@@ -735,6 +744,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 	if operation == "" {
 		operation = decodeVideoOperation(job.InputJSON)
 	}
+	provider.ReportVideoStep(ctx, "resolve_inputs")
 	imageURL, referenceURLs, referenceAudios, videoURL, err := s.resolveVideoJobInputs(ctx, operation, job.InputJSON)
 	if err != nil {
 		s.failVideoJob(parent, job, "input_unavailable", err, 0, nil)
@@ -769,6 +779,10 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 
 	for attempt := 0; attemptPolicy.allows(attempt); attempt++ {
 		attemptStarted := time.Now()
+		if s.videoDiagnosticsEnabled.Load() {
+			job.Diagnostics.Attempt++
+		}
+		provider.ReportVideoStep(ctx, "wait_account")
 		err = nil
 		if lease != nil {
 			lease.Release()
@@ -816,6 +830,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 			}
 		}
 		if err != nil {
+			s.recordVideoDiagnosticFailure(&job, err)
 			if parent.Err() != nil {
 				s.deferVideoJob(parent, job)
 				return
@@ -827,8 +842,13 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 			return
 		}
 		excluded[lease.Credential.ID] = true
+		if s.videoDiagnosticsEnabled.Load() {
+			job.AccountID, job.AccountName = lease.Credential.ID, lease.Credential.Name
+		}
+		provider.ReportVideoStep(ctx, "prepare_account")
 		credential, credErr := s.accounts.EnsureCredential(ctx, lease.Credential, false)
 		if credErr != nil {
+			s.recordVideoDiagnosticFailure(&job, credErr)
 			failureAttempts.captureCredentialFailure(lease.Credential, attemptStarted, false, credErr)
 			lastErr = credErr
 			if attemptPolicy.hasNext(attempt) {
@@ -845,6 +865,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 		}
 
 		lastProgress := job.Progress
+		provider.ReportVideoStep(ctx, "prepare_provider")
 		result, err = adapter.GenerateVideo(ctx, provider.VideoRequest{
 			Credential: lease.Credential, Billing: lease.Billing, JobID: job.ID, Model: route.UpstreamModel,
 			Operation: operation,
@@ -853,7 +874,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 			VideoExtensionStartTime: decodeVideoExtensionStartTime(job.InputJSON),
 			Progress: func(value int) {
 				value = min(99, max(1, value))
-				if value-lastProgress < 5 {
+				if value-lastProgress < 5 && (!s.videoDiagnosticsEnabled.Load() || time.Since(job.UpdatedAt) < 15*time.Second) {
 					return
 				}
 				lastProgress = value
@@ -882,6 +903,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 			break
 		}
 		lastErr = err
+		s.recordVideoDiagnosticFailure(&job, err)
 		captureVideoAttempt(failureAttempts, lease.Credential, attemptStarted, err)
 		if parent.Err() != nil {
 			s.deferVideoJob(parent, job)
@@ -969,6 +991,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 			return
 		}
 		// Create-stage failure: switch account according to runtime attempt policy.
+		provider.ReportVideoStep(ctx, "retry")
 		continue
 	}
 	if lease == nil {
@@ -981,8 +1004,13 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 	referenceURLs = nil
 	releaseInputSlot()
 
+	provider.ReportVideoStep(ctx, "finalize")
 	now := time.Now().UTC()
 	job.Status, job.Progress, job.UpstreamURL, job.ContentType = media.StatusCompleted, 100, result.URL, result.ContentType
+	if current := job.Diagnostics.Current(); current != nil && s.videoDiagnosticsEnabled.Load() {
+		current.FinishedAt = &now
+		job.DiagnosticsDirty = true
+	}
 	// 成功终态必须清空历史错误字段，避免管理端/恢复路径把中间失败文案当成最终结果。
 	job.ErrorCode, job.ErrorMessage = "", ""
 	if result.AssetID != "" {
@@ -1219,10 +1247,12 @@ func (s *Service) persistRemoteVideo(ctx context.Context, jobID string, adapter 
 	}
 	var lastErr error
 	for attempt := 0; attempt < videoOutputAttempts; attempt++ {
+		provider.ReportVideoItemStep(ctx, "download_video", attempt+1, videoOutputAttempts)
 		body, contentType, _, downloadErr := downloader.DownloadVideo(ctx, credential, result.URL)
 		if downloadErr != nil {
 			lastErr = provider.NewMediaPostProcessingError(provider.MediaPostProcessingDownload, downloadErr)
 		} else {
+			provider.ReportVideoStep(ctx, "save_video")
 			asset, saveErr := s.mediaAssets.SaveVideo(ctx, jobID, contentType, body)
 			_ = body.Close()
 			if saveErr == nil {
@@ -1564,6 +1594,7 @@ func videoInputReferences(imageURL string, referenceURLs []string) []string {
 }
 
 func (s *Service) failVideoJob(ctx context.Context, job media.Job, code string, err error, upstreamStatus int, attempts []audit.Attempt) {
+	s.recordVideoDiagnosticFailure(&job, err)
 	now := time.Now().UTC()
 	message := ""
 	if err != nil {
@@ -1732,6 +1763,8 @@ func (s *Service) logVideoGenerationFailure(job media.Job, credential account.Cr
 }
 
 func (s *Service) deferVideoJob(ctx context.Context, job media.Job) {
+	s.recordVideoDiagnosticFailure(&job, errors.New("Execution interrupted; waiting for recovery"))
+	s.recordVideoStep(ctx, &job, "await_recovery", 0, 0)
 	now := time.Now().UTC()
 	leaseUntil := now.Add(5 * time.Minute)
 	job.Status = media.StatusInProgress

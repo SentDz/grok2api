@@ -354,6 +354,14 @@ export function SettingsPage() {
           </SettingsPane>
 
           <SettingsPane value="audit">
+            <SettingsSection title={t("videoTask.settingsTitle")}>
+              <SettingsField controlId="video-diagnostics-enabled" label={t("videoTask.enabled")} description={t("videoTask.enabledHelp")}>
+                <Controller control={form.control} name="audit.videoDiagnosticsEnabled" render={({ field }) => <Switch id="video-diagnostics-enabled" checked={field.value} onCheckedChange={field.onChange} />} />
+              </SettingsField>
+              <SettingsField controlId="video-diagnostics-cleanup-days" label={t("videoTask.cleanupDays")} description={t("videoTask.cleanupDaysHelp")} error={form.formState.errors.audit?.videoDiagnosticsCleanupIntervalDays?.message}>
+                <Input id="video-diagnostics-cleanup-days" type="number" min={1} max={365} step={1} {...form.register("audit.videoDiagnosticsCleanupIntervalDays", { valueAsNumber: true })} />
+              </SettingsField>
+            </SettingsSection>
             <SettingsSection title={t("settings.audit.retentionTitle")}>
               <div className="space-y-0">
                 <SettingsField

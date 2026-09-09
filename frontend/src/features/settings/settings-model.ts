@@ -161,6 +161,8 @@ export const settingsSchema = z.object({
     flushInterval: auditFlushDuration,
     commitDelayMS: positiveInteger.max(50),
     retentionDays: z.number().int().min(0).max(365),
+    videoDiagnosticsEnabled: z.boolean(),
+    videoDiagnosticsCleanupIntervalDays: positiveInteger.max(365),
   })
     .refine((value) => value.batchSize <= value.bufferSize, { path: ["batchSize"] }),
   clientKeyDefaults: z.object({ rpmLimit: positiveInteger.max(100_000), maxConcurrent: positiveInteger.max(1_024) }),
@@ -235,6 +237,8 @@ export function toSettingsForm(config: SettingsConfigDTO): SettingsForm {
       flushInterval: parseDuration(config.audit.flushInterval),
       commitDelayMS: config.audit.commitDelayMS,
       retentionDays: config.audit.retentionDays ?? 7,
+      videoDiagnosticsEnabled: config.audit.videoDiagnosticsEnabled ?? false,
+      videoDiagnosticsCleanupIntervalDays: config.audit.videoDiagnosticsCleanupIntervalDays ?? 7,
     },
     clientKeyDefaults: config.clientKeyDefaults,
     accounts: {
@@ -287,6 +291,8 @@ export function toSettingsDTO(config: SettingsForm): SettingsConfigDTO {
       flushInterval: formatDuration(config.audit.flushInterval),
       commitDelayMS: config.audit.commitDelayMS,
       retentionDays: config.audit.retentionDays,
+      videoDiagnosticsEnabled: config.audit.videoDiagnosticsEnabled,
+      videoDiagnosticsCleanupIntervalDays: config.audit.videoDiagnosticsCleanupIntervalDays,
     },
     clientKeyDefaults: config.clientKeyDefaults,
     accounts: {

@@ -208,6 +208,7 @@ type Service struct {
 	responses                   repository.ResponseRepository
 	maxAttempts                 atomic.Int64
 	videoMaxAttempts            atomic.Int64
+	videoDiagnosticsEnabled     atomic.Bool
 	buildForbiddenReauth        atomic.Pointer[buildForbiddenReauthPolicy]
 	requestTimeout              atomic.Int64
 	mediaJobs                   repository.MediaJobRepository

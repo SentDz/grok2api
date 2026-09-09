@@ -358,6 +358,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Applicat
 	gatewayService := gateway.NewService(modelService, auditService, accountService, clientKeyService, providers, selector, responseRepo, cfg.Routing.MaxAttempts)
 	gatewayService.UpdateQualityRetry(qualityRetryRuntime(cfg.QualityGuard.RequestRetry))
 	gatewayService.UpdateVideoMaxAttempts(cfg.Routing.VideoMaxAttempts)
+	gatewayService.UpdateVideoDiagnosticsEnabled(cfg.Audit.VideoDiagnosticsEnabled)
 	gatewayService.UpdateMarkBuildChatDeniedAsReauth(cfg.Routing.MarkBuildChatDeniedAsReauth)
 	gatewayService.SetLogger(logger)
 	egressService.SetQualityProber(gatewayService)
@@ -427,6 +428,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Applicat
 		gatewayService.UpdateMaxAttempts(next.Routing.MaxAttempts)
 		gatewayService.UpdateQualityRetry(qualityRetryRuntime(next.QualityGuard.RequestRetry))
 		gatewayService.UpdateVideoMaxAttempts(next.Routing.VideoMaxAttempts)
+		gatewayService.UpdateVideoDiagnosticsEnabled(next.Audit.VideoDiagnosticsEnabled)
 		gatewayService.UpdateMarkBuildChatDeniedAsReauth(next.Routing.MarkBuildChatDeniedAsReauth)
 		gatewayService.UpdateBuildForbiddenReauthPolicy(next.Accounts.MarkBuildForbiddenReauth, next.Accounts.BuildForbiddenReauthCodes)
 		auditService.UpdateWriterConfig(next.Audit.BatchSize, next.Audit.FlushInterval.Value(), next.Audit.CommitDelay.Value())
@@ -531,8 +533,9 @@ func auditLedgerConfig(value config.AuditConfig) auditapp.LedgerConfig {
 
 func mediaConfig(cfg config.Config) mediaapp.Config {
 	return mediaapp.Config{
-		PublicBaseURL: cfg.Frontend.EffectivePublicAPIBaseURL(),
-		MaxImageBytes: cfg.Media.MaxImageBytes, MaxTotalBytes: cfg.Media.MaxTotalBytes,
+		VideoDiagnosticsEnabled: cfg.Audit.VideoDiagnosticsEnabled,
+		PublicBaseURL:           cfg.Frontend.EffectivePublicAPIBaseURL(),
+		MaxImageBytes:           cfg.Media.MaxImageBytes, MaxTotalBytes: cfg.Media.MaxTotalBytes,
 		CleanupThresholdPercent: cfg.Media.CleanupThresholdPercent, CleanupInterval: cfg.Media.CleanupInterval.Value(),
 	}
 }
@@ -618,6 +621,13 @@ func (a *Application) Run(ctx context.Context) error {
 				return nil
 			}
 			_, err := a.audits.PurgeOutdated(runCtx, retentionDays)
+			return err
+		})
+		return nil
+	})
+	startBackground("video_diagnostics_cleanup", func(taskCtx context.Context) error {
+		a.runPeriodicTask(taskCtx, time.Minute, "video_diagnostics_cleanup", func(runCtx context.Context) error {
+			_, err := a.media.CleanupVideoDiagnostics(runCtx, a.settings.Get().Config.Audit.VideoDiagnosticsCleanupIntervalDays)
 			return err
 		})
 		return nil
