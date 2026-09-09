@@ -336,6 +336,59 @@ func TestNormalizeRequestAppliesConsoleContract(t *testing.T) {
 	}
 }
 
+func TestNormalizeRequestLiftsFunctionParameterUnion(t *testing.T) {
+	spec, ok := Resolve("grok-4.3")
+	if !ok {
+		t.Fatal("grok-4.3 missing")
+	}
+	body, err := normalizeRequest([]byte(`{
+		"model":"grok-4.3",
+		"input":"hello",
+		"tools":[{"type":"function","name":"automation_update","parameters":{
+			"$defs":{
+				"View":{"type":"object","properties":{"mode":{"enum":["view"],"type":"string"}},"required":["mode"]},
+				"Create":{"oneOf":[{"type":"object","properties":{"mode":{"enum":["create"],"type":"string"}},"required":["mode"]}]}
+			},
+			"type":"object",
+			"properties":{},
+			"oneOf":[{"$ref":"#/$defs/View"},{"$ref":"#/$defs/Create"}]
+		}}]
+	}`), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	parameters := payload["tools"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	branches, _ := parameters["oneOf"].([]any)
+	if len(branches) != 2 {
+		t.Fatalf("parameters = %#v", parameters)
+	}
+	for i, raw := range branches {
+		branch, _ := raw.(map[string]any)
+		if branch["type"] != "object" || branch["$ref"] != nil || branch["oneOf"] != nil {
+			t.Fatalf("branch[%d] = %#v", i, branch)
+		}
+	}
+}
+
+func TestNormalizeRequestIllegalFunctionRootNamesTool(t *testing.T) {
+	spec, ok := Resolve("grok-4.3")
+	if !ok {
+		t.Fatal("grok-4.3 missing")
+	}
+	_, err := normalizeRequest([]byte(`{
+		"model":"grok-4.3",
+		"input":"hello",
+		"tools":[{"type":"function","name":"automation_update","parameters":{"type":"string"}}]
+	}`), spec)
+	if err == nil || !strings.Contains(err.Error(), "automation_update") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestNormalizeRequestForwardsXSearchTimeRangeAndImageSearch(t *testing.T) {
 	spec, ok := Resolve("grok-4.3")
 	if !ok {
@@ -1665,6 +1718,67 @@ func TestConsoleImageEditForwardsMultipleImages(t *testing.T) {
 	if !bytes.Contains(body, []byte(`"b64_json":"aW1hZ2U="`)) {
 		t.Fatalf("b64 response = %s", body)
 	}
+
+	response, err = adapter.EditImage(context.Background(), provider.ImageEditRequest{
+		Credential: credential, Model: "grok-imagine-image", Prompt: "merge", Count: 1,
+		ImageURLs:        []string{"https://example.com/a.png"},
+		SelectionRegions: []provider.ImageSelectionRegion{{Points: []float64{0.1, 0.1, 0.9, 0.1, 0.9, 0.9}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("segmented edit response = %#v", response)
+	}
+}
+
+func TestConsoleImage20EditAcceptsFourteenAndRejectsFifteenImages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		images, _ := payload["images"].([]any)
+		if len(images) != mediadomain.MaxModelReferenceImages {
+			t.Errorf("images = %d", len(images))
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"data":[{"b64_json":"aW1hZ2U="}]}`))
+	}))
+	t.Cleanup(server.Close)
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	images := make([]string, mediadomain.MaxModelReferenceImages+1)
+	for index := range images {
+		images[index] = fmt.Sprintf("https://example.com/%d.png", index)
+	}
+
+	response, err := adapter.EditImage(context.Background(), provider.ImageEditRequest{
+		Credential: credential, PublicModel: "grok-imagine-image-2.0", Model: "grok-imagine-image-2.0",
+		Prompt: "merge", Count: 1, ImageURLs: images[:14], ResponseFormat: "b64_json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("14 images response = %#v", response)
+	}
+
+	response, err = adapter.EditImage(context.Background(), provider.ImageEditRequest{
+		Credential: credential, PublicModel: "grok-imagine-image-2.0", Model: "grok-imagine-image-2.0",
+		Prompt: "merge", Count: 1, ImageURLs: images, ResponseFormat: "b64_json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("15 images response = %#v", response)
+	}
 }
 
 func TestConsoleImage20ForwardsQualityAndRejectsItForLegacyModels(t *testing.T) {
@@ -1990,11 +2104,10 @@ func TestConsoleTTSPostsChineseVoice(t *testing.T) {
 	}
 }
 
-// Measured upstream ceiling: 8 references answer 400 "Too many reference images:
-// 8. Maximum allowed is 7." on both grok-imagine-video and grok-imagine-video-1.5.
+// The legacy model keeps its measured seven-reference Console ceiling.
 func TestConsoleVideoRejectsTooManyReferenceImages(t *testing.T) {
 	adapter, credential := newConsoleTestAdapter(t, "https://console.example")
-	references := make([]string, provider.ConsoleVideoMaxReferenceImages+1)
+	references := make([]string, provider.ConsoleLegacyVideoMaxReferenceImages+1)
 	for i := range references {
 		references[i] = "https://example.com/" + strings.Repeat("x", i+1) + ".png"
 	}
@@ -2006,9 +2119,30 @@ func TestConsoleVideoRejectsTooManyReferenceImages(t *testing.T) {
 	}
 }
 
+func TestConsoleVideo15AcceptsFourteenAndRejectsFifteenReferenceImages(t *testing.T) {
+	adapter, credential := newConsoleTestAdapter(t, "https://console.example")
+	references := make([]string, mediadomain.MaxModelReferenceImages+1)
+	for i := range references {
+		references[i] = "https://example.com/" + strings.Repeat("z", i+1) + ".png"
+	}
+	_, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Model: "grok-imagine-video-1.5", Prompt: "animate", Duration: 6, ReferenceURLs: references,
+	})
+	if err == nil || !strings.Contains(err.Error(), "最多支持 14 张") {
+		t.Fatalf("15 references error = %v", err)
+	}
+	// Fourteen references pass local validation and reach the test transport.
+	_, err = adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Model: "grok-imagine-video-1.5", Prompt: "animate", Duration: 6, ReferenceURLs: references[:14],
+	})
+	if err == nil || strings.Contains(err.Error(), "最多支持") {
+		t.Fatalf("14 references local validation error = %v", err)
+	}
+}
+
 func TestConsoleVideoRejectsTooManyCombinedImages(t *testing.T) {
 	adapter, credential := newConsoleTestAdapter(t, "https://console.example")
-	references := make([]string, provider.ConsoleVideoMaxReferenceImages)
+	references := make([]string, provider.ConsoleLegacyVideoMaxReferenceImages)
 	for i := range references {
 		references[i] = "https://example.com/" + strings.Repeat("y", i+1) + ".png"
 	}

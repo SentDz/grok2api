@@ -857,7 +857,7 @@ func TestImageEditRejectsUnsupportedCountAndStreamingOptions(t *testing.T) {
 		{ImageURLs: []string{"data:image/png;base64,AA=="}, Count: 2, Resolution: "1k"},
 		{ImageURLs: []string{"data:image/png;base64,AA=="}, Count: 1, Resolution: "1k", PartialImages: 1},
 		{ImageURLs: []string{"data:image/png;base64,AA=="}, Count: 1, Resolution: "1k", Streaming: true, PartialImages: 4},
-		{ImageURLs: []string{"data:image/png;base64,AA==", "data:image/png;base64,AA=="}, Count: 1, Resolution: "1k", SelectionRegions: []provider.ImageSelectionRegion{{Points: []float64{0.1, 0.1, 0.9, 0.1, 0.9, 0.9}}}},
+		{ImageURLs: []string{"data:image/png;base64,AA=="}, Count: 1, Resolution: "1k", Streaming: true, SelectionRegions: []provider.ImageSelectionRegion{{Points: []float64{0.1, 0.1, 0.9, 0.1, 0.9, 0.9}}}},
 	} {
 		response, err := adapter.EditImage(context.Background(), request)
 		if err != nil {
@@ -871,9 +871,60 @@ func TestImageEditRejectsUnsupportedCountAndStreamingOptions(t *testing.T) {
 	}
 }
 
+func TestImage20WebEditReferenceLimitUsesPublicModel(t *testing.T) {
+	adapter := &Adapter{}
+	images := make([]string, mediadomain.MaxModelReferenceImages+1)
+	for index := range images {
+		images[index] = "data:image/png;base64,AA=="
+	}
+
+	response, err := adapter.EditImage(context.Background(), provider.ImageEditRequest{
+		PublicModel: "grok-imagine-image-2.0-web",
+		Model:       "imagine-image-edit",
+		ImageURLs:   images[:14],
+		Count:       2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if !bytes.Contains(body, []byte("n=1")) || bytes.Contains(body, []byte("1 到 14")) {
+		t.Fatalf("14 images did not pass reference limit: %s", body)
+	}
+
+	response, err = adapter.EditImage(context.Background(), provider.ImageEditRequest{
+		PublicModel: "grok-imagine-image-2.0-web",
+		Model:       "imagine-image-edit",
+		ImageURLs:   images,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if !bytes.Contains(body, []byte("1 到 14")) {
+		t.Fatalf("15 images response = %s", body)
+	}
+
+	response, err = adapter.EditImage(context.Background(), provider.ImageEditRequest{
+		PublicModel: "grok-imagine-image-edit",
+		Model:       "imagine-image-edit",
+		ImageURLs:   images[:9],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if !bytes.Contains(body, []byte("1 到 8")) {
+		t.Fatalf("legacy 9 images response = %s", body)
+	}
+}
+
 func TestBuildImageEditPayloadMatchesCapturedMediaGenInputShape(t *testing.T) {
 	assets := []string{"metadata-1", "metadata-2"}
-	payload := buildImageEditPayload("改成兔子", assets, "1:1", nil)
+	payload := buildImageEditPayload(imageEditPayloadOptions{Prompt: "改成兔子", Assets: assets, AspectRatio: "1:1"})
 	mediaGenInput, ok := payload["mediaGenInput"].(map[string]any)
 	if !ok {
 		t.Fatalf("mediaGenInput = %#v", payload["mediaGenInput"])
@@ -889,27 +940,118 @@ func TestBuildImageEditPayloadMatchesCapturedMediaGenInputShape(t *testing.T) {
 	if imageToImage["prompt"] != "改成兔子" || imageToImage["aspectRatio"] != "1:1" || !slices.Equal(imageToImage["inputAssets"].([]string), assets) {
 		t.Fatalf("imageToImage = %#v", imageToImage)
 	}
-	for _, field := range []string{"temporary", "enableImageGeneration", "imageGenerationCount", "config", "responseMetadata", "kind", "parentPostId"} {
+	for _, field := range []string{"temporary", "enableImageGeneration", "imageGenerationCount", "config", "responseMetadata", "kind", "parentPostId", "parentResponseId"} {
 		if _, exists := payload[field]; exists {
 			t.Fatalf("legacy field %q leaked into payload: %#v", field, payload)
 		}
 	}
-	withoutRatio := buildImageEditPayload("edit", []string{"metadata-1"}, "", nil)
-	segmented := buildImageEditPayload("改鞋子", []string{"metadata-1"}, "auto", []provider.ImageSelectionRegion{
-		{Points: []float64{0.1, 0.7, 0.4, 0.7, 0.4, 0.95, 0.1, 0.95, 0.1, 0.7}},
+	withoutRatio := buildImageEditPayload(imageEditPayloadOptions{Prompt: "edit", Assets: []string{"metadata-1"}})
+	layerEdit := buildImageEditPayload(imageEditPayloadOptions{
+		Prompt:      "改鞋子",
+		Assets:      []string{"metadata-1"},
+		AspectRatio: "auto",
+		Regions: []provider.ImageSelectionRegion{
+			{Points: []float64{0.1, 0.7, 0.4, 0.7, 0.4, 0.95, 0.1, 0.95, 0.1, 0.7}},
+		},
 	})
-	segmentedInput := segmented["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
-	if segmentedInput["aspectRatio"] != "auto" {
-		t.Fatalf("segmented aspect = %#v", segmentedInput["aspectRatio"])
+	if layerEdit["kind"] != "CONVERSATION_KIND_IMAGINE" || layerEdit["message"] != "改鞋子" {
+		t.Fatalf("uploaded layer payload = %#v", layerEdit)
 	}
-	regions, _ := segmentedInput["selectionRegions"].([]map[string]any)
-	if len(regions) != 1 {
-		t.Fatalf("selectionRegions = %#v", segmentedInput["selectionRegions"])
+	if _, exists := layerEdit["parentResponseId"]; exists {
+		t.Fatalf("parentResponseId leaked: %#v", layerEdit)
+	}
+	layerInput := layerEdit["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
+	if _, exists := layerInput["aspectRatio"]; exists {
+		t.Fatalf("segmented edit leaked aspectRatio: %#v", layerInput)
+	}
+	if _, exists := layerInput["selectionRegions"]; exists {
+		t.Fatalf("uploaded file leaked selectionRegions: %#v", layerInput)
+	}
+	edits, _ := layerInput["multiRegionEdits"].([]map[string]any)
+	if len(edits) != 1 || edits[0]["prompt"] != "改鞋子" {
+		t.Fatalf("uploaded layer multiRegionEdits = %#v", layerInput["multiRegionEdits"])
 	}
 	mediaGenInput = withoutRatio["mediaGenInput"].(map[string]any)
 	imageToImage = mediaGenInput["imageToImage"].(map[string]any)
 	if _, exists := imageToImage["aspectRatio"]; exists {
 		t.Fatalf("empty aspect ratio leaked into payload: %#v", imageToImage)
+	}
+}
+
+func TestBuildImageEditPayloadMatchesCapturedMultiRegionProtocol(t *testing.T) {
+	source := "0461a370-1bc9-4461-950b-a969d428177c"
+	reference := "ba43aabb-3f16-4e5a-a88d-7eec0fb6790b"
+	first := []float64{0.01220703125, 0.44580078125, 0.01904296875, 0.44775390625, 0.02685546875, 0.45556640625}
+	second := []float64{0.37646484375, 0.85107421875, 0.37744140625, 0.85107421875, 0.37841796875, 0.85107421875}
+	payload := buildImageEditPayload(imageEditPayloadOptions{
+		Assets: []string{source, reference},
+		Edits: []provider.ImageRegionEdit{
+			{Regions: []provider.ImageSelectionRegion{{Points: first}}, Prompt: "111"},
+			{Regions: []provider.ImageSelectionRegion{{Points: second}}, Prompt: "222", ReferenceIndexes: []int{1}},
+		},
+	})
+	if len(payload) != 8 || payload["modelName"] != "imagine-image-edit" || payload["message"] != "111; 222" ||
+		payload["enableImageStreaming"] != true || payload["enableSideBySide"] != true || payload["sendFinalMetadata"] != true ||
+		payload["kind"] != "CONVERSATION_KIND_IMAGINE" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	metadata := payload["responseMetadata"].(map[string]any)
+	modelMap := metadata["modelConfigOverride"].(map[string]any)["modelMap"].(map[string]any)
+	if modelMap["imageEditModel"] != "imagine" {
+		t.Fatalf("imageEditModel = %#v", modelMap["imageEditModel"])
+	}
+	imageToImage := payload["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
+	if imageToImage["prompt"] != "111; 222" || !slices.Equal(imageToImage["inputAssets"].([]string), []string{source, reference}) {
+		t.Fatalf("imageToImage = %#v", imageToImage)
+	}
+	if _, exists := imageToImage["aspectRatio"]; exists {
+		t.Fatalf("empty aspect ratio leaked into payload: %#v", imageToImage)
+	}
+	if _, exists := imageToImage["selectionRegions"]; exists {
+		t.Fatalf("multi-region edit leaked selectionRegions: %#v", imageToImage)
+	}
+	edits, _ := imageToImage["multiRegionEdits"].([]map[string]any)
+	if len(edits) != 2 || edits[0]["prompt"] != "111" || edits[1]["prompt"] != "222" {
+		t.Fatalf("multiRegionEdits = %#v", imageToImage["multiRegionEdits"])
+	}
+	if _, exists := edits[0]["referenceAssets"]; exists {
+		t.Fatalf("first region leaked referenceAssets: %#v", edits[0])
+	}
+	if !slices.Equal(edits[1]["referenceAssets"].([]string), []string{reference}) {
+		t.Fatalf("second region referenceAssets = %#v", edits[1]["referenceAssets"])
+	}
+}
+
+func TestBuildImageEditPayloadMatchesCapturedUploadedFileNewConversationProtocol(t *testing.T) {
+	asset := "a2bbe690-d97d-4644-b785-7e9a80243194"
+	payload := buildImageEditPayload(imageEditPayloadOptions{
+		Assets: []string{asset},
+		Edits: []provider.ImageRegionEdit{
+			{Regions: []provider.ImageSelectionRegion{{Points: []float64{0.32697947214076245, 0.4111328125, 0.3416422287390029, 0.4150390625}}}, Prompt: "黑色"},
+			{Regions: []provider.ImageSelectionRegion{{Points: []float64{0.03372434017595308, 0.0009765625, 0.218475073313783, 0.0009765625}}}, Prompt: "北京"},
+		},
+	})
+	if payload["modelName"] != "imagine-image-edit" || payload["message"] != "黑色; 北京" ||
+		payload["kind"] != "CONVERSATION_KIND_IMAGINE" || payload["enableImageStreaming"] != true {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if _, exists := payload["parentResponseId"]; exists {
+		t.Fatalf("uploaded file must not continue a conversation: %#v", payload)
+	}
+	modelMap := payload["responseMetadata"].(map[string]any)["modelConfigOverride"].(map[string]any)["modelMap"].(map[string]any)
+	if modelMap["imageEditModel"] != "imagine" {
+		t.Fatalf("imageEditModel = %#v", modelMap["imageEditModel"])
+	}
+	imageToImage := payload["mediaGenInput"].(map[string]any)["imageToImage"].(map[string]any)
+	if imageToImage["prompt"] != "黑色; 北京" || !slices.Equal(imageToImage["inputAssets"].([]string), []string{asset}) {
+		t.Fatalf("imageToImage = %#v", imageToImage)
+	}
+	if _, exists := imageToImage["selectionRegions"]; exists {
+		t.Fatalf("selectionRegions leaked: %#v", imageToImage)
+	}
+	edits, _ := imageToImage["multiRegionEdits"].([]map[string]any)
+	if len(edits) != 2 || edits[0]["prompt"] != "黑色" || edits[1]["prompt"] != "北京" {
+		t.Fatalf("multiRegionEdits = %#v", imageToImage["multiRegionEdits"])
 	}
 }
 

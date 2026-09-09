@@ -409,6 +409,22 @@ func (r *AccountRepository) Summarize(ctx context.Context, now time.Time) ([]rep
 	return rows, err
 }
 
+// SummarizeQuotaWindows 按模式汇总 Provider 全部账号已同步的额度窗口。
+func (r *AccountRepository) SummarizeQuotaWindows(ctx context.Context, provider account.Provider, modes []string) ([]repository.AccountQuotaSummary, error) {
+	if len(modes) == 0 {
+		return nil, nil
+	}
+	var rows []repository.AccountQuotaSummary
+	err := r.db.db.WithContext(ctx).
+		Table("account_quota_windows AS quota").
+		Select(`quota.mode, SUM(quota.remaining) AS remaining, SUM(quota.total) AS total, COUNT(*) AS accounts, SUM(CASE WHEN quota.remaining <= 0 THEN 1 ELSE 0 END) AS exhausted`).
+		Joins("JOIN provider_accounts AS account ON account.id = quota.account_id").
+		Where("account.provider = ? AND quota.mode IN ?", provider, modes).
+		Group("quota.mode").
+		Scan(&rows).Error
+	return rows, err
+}
+
 // ListRoutingCandidates 批量加载账号、额度、恢复状态和目标模型能力，避免推理热路径按账号逐条查询。
 func (r *AccountRepository) ListRoutingCandidates(ctx context.Context, provider account.Provider, modelRouteID uint64, upstreamModel, quotaMode string) ([]account.RoutingCandidate, error) {
 	values, err := r.listRoutingCredentials(ctx, provider)

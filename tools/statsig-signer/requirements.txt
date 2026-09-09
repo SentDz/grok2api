@@ -1,0 +1,6 @@
+# 签名器本身只依赖 Python 3.9+ 标准库。
+# 本机抓包：
+#   pip install playwright && playwright install chromium
+# x2api Worker 抓包：
+#   pip install grpcio
+#   并设置 X2API_ROOT、X2API_BROWSER_ADDR

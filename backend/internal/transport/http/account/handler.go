@@ -456,6 +456,11 @@ func (h *Handler) summary(c *gin.Context) {
 	build := value.Providers[string(accountdomain.ProviderBuild)]
 	web := value.Providers[string(accountdomain.ProviderWeb)]
 	console := value.Providers[string(accountdomain.ProviderConsole)]
+	webQuota := gin.H{}
+	for _, mode := range accountdomain.WebImagineQuotaModes() {
+		quota := value.WebQuota[mode]
+		webQuota[mode] = gin.H{"remaining": quota.Remaining, "total": quota.Total, "accounts": quota.Accounts, "exhausted": quota.Exhausted}
+	}
 	response.Success(c, http.StatusOK, gin.H{
 		"total": value.Total, "available": value.Available, "recovering": value.Recovering, "attention": value.Attention, "risk": value.Risk,
 		"providers": gin.H{
@@ -465,6 +470,7 @@ func (h *Handler) summary(c *gin.Context) {
 		},
 		"recovery": gin.H{"cooldown": value.Recovery.Cooldown, "waitingReset": value.Recovery.WaitingReset, "probing": value.Recovery.Probing},
 		"issues":   gin.H{"disabled": value.Issues.Disabled, "reauthRequired": value.Issues.ReauthRequired},
+		"webQuota": webQuota,
 	})
 }
 

@@ -65,6 +65,51 @@ database:
 	}
 }
 
+func TestLoadStatsigSignerURLFromYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`secrets:
+  jwtSecret: "12345678901234567890123456789012"
+  credentialEncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+bootstrapAdmin:
+  password: "password123"
+provider:
+  web:
+    statsigMode: url
+    statsigSignerURL: "https://signer.example.com/sign"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.Web.StatsigMode != StatsigModeURL {
+		t.Fatalf("statsigMode = %q", cfg.Provider.Web.StatsigMode)
+	}
+	if cfg.Provider.Web.StatsigSignerURL != "https://signer.example.com/sign" {
+		t.Fatalf("statsigSignerURL = %q", cfg.Provider.Web.StatsigSignerURL)
+	}
+}
+
+func TestLoadEmptyStatsigSignerURLKeepsDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`secrets:
+  jwtSecret: "12345678901234567890123456789012"
+  credentialEncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+bootstrapAdmin:
+  password: "password123"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.Web.StatsigSignerURL != DefaultStatsigSignerURL {
+		t.Fatalf("statsigSignerURL = %q", cfg.Provider.Web.StatsigSignerURL)
+	}
+}
+
 func TestLoadDoesNotImplicitlyReadGenericDatabaseURL(t *testing.T) {
 	t.Setenv(DatabaseURLEnv, "")
 	t.Setenv("DATABASE_URL", "postgres://generic:secret@postgres.internal/grok2api")

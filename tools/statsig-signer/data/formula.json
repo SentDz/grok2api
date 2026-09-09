@@ -1,0 +1,13 @@
+{
+  "path_index": 5,
+  "path_mod": 4,
+  "seg_index": 39,
+  "seg_mod": 16,
+  "seek_indices": [3, 31, 36],
+  "seek_mod": 16,
+  "seek_align": 10,
+  "duration": 4096,
+  "epoch": 1682924400,
+  "salt": "obfiowerehiring",
+  "mark": 3
+}

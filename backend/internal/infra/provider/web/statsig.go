@@ -126,9 +126,13 @@ func (s *statsigSigner) Warm(ctx context.Context, baseURL, signerURL, token stri
 	if err != nil {
 		return 0, err
 	}
+	nowUnix := now.Unix()
 	warmed := 0
 	for _, target := range pending {
 		value, signErr := s.requestSignature(ctx, signerURL, target.method, target.path, meta)
+		if signErr != nil {
+			value, signErr = signStatsigWithMeta(target.method, target.path, meta, nowUnix)
+		}
 		if signErr != nil {
 			return warmed, signErr
 		}
@@ -143,8 +147,15 @@ func (s *statsigSigner) freshSignature(ctx context.Context, baseURL, signerURL, 
 	if err != nil {
 		return "", err
 	}
+	nowUnix := time.Now().Unix()
+	if s.now != nil {
+		nowUnix = s.now().Unix()
+	}
 	signature, err := s.requestSignature(ctx, signerURL, method, path, meta)
 	if err == nil {
+		return signature, nil
+	}
+	if signature, localErr := signStatsigWithMeta(method, path, meta, nowUnix); localErr == nil {
 		return signature, nil
 	}
 
@@ -154,6 +165,9 @@ func (s *statsigSigner) freshSignature(ctx context.Context, baseURL, signerURL, 
 	}
 	signature, retryErr := s.requestSignature(ctx, signerURL, method, path, meta)
 	if retryErr != nil {
+		if signature, localErr := signStatsigWithMeta(method, path, meta, nowUnix); localErr == nil {
+			return signature, nil
+		}
 		return "", fmt.Errorf("Statsig 签名失败: %w", retryErr)
 	}
 	return signature, nil
@@ -430,20 +444,29 @@ func (a *Adapter) applySignedStatsig(ctx context.Context, request *http.Request,
 		}
 		return
 	}
-	if a.statsig == nil {
-		return
+	nowUnix := time.Now().Unix()
+	if a.statsig != nil && a.statsig.now != nil {
+		nowUnix = a.statsig.now().Unix()
 	}
-	value, source, err := a.statsig.Sign(ctx, cfg.BaseURL, cfg.StatsigSignerURL, token, lease, request.Method, request.URL.String())
-	if err == nil {
-		request.Header.Set("x-statsig-id", value)
-		if source == "refresh" {
-			a.log().Info("web_statsig_refreshed", "method", request.Method, "path", request.URL.EscapedPath())
-		} else if source == "stale" {
-			a.log().Warn("web_statsig_refresh_failed_using_stale", "method", request.Method, "path", request.URL.EscapedPath())
+	if a.statsig != nil {
+		value, source, err := a.statsig.Sign(ctx, cfg.BaseURL, cfg.StatsigSignerURL, token, lease, request.Method, request.URL.String())
+		if err == nil {
+			request.Header.Set("x-statsig-id", value)
+			if source == "refresh" {
+				a.log().Info("web_statsig_refreshed", "method", request.Method, "path", request.URL.EscapedPath())
+			} else if source == "stale" {
+				a.log().Warn("web_statsig_refresh_failed_using_stale", "method", request.Method, "path", request.URL.EscapedPath())
+			}
+			return
 		}
-		return
+		a.log().Warn("web_statsig_fetch_failed", "method", request.Method, "path", request.URL.EscapedPath(), "error", err)
 	}
-	a.log().Warn("web_statsig_fetch_failed", "method", request.Method, "path", request.URL.EscapedPath(), "error", err)
+	if value, err := generateLocalStatsig(request.Method, request.URL.EscapedPath(), nowUnix); err == nil {
+		request.Header.Set("x-statsig-id", value)
+		return
+	} else {
+		a.log().Warn("web_statsig_local_failed", "method", request.Method, "path", request.URL.EscapedPath(), "error", err)
+	}
 }
 
 // WarmStatsig 只使用一个 Web 账号和一个出口租约预热共享签名，不会逐账号访问上游。
@@ -455,9 +478,6 @@ func (a *Adapter) WarmStatsig(ctx context.Context, credential account.Credential
 		}
 		return 0, nil
 	}
-	if a.statsig == nil {
-		return 0, fmt.Errorf("Statsig 签名器未初始化")
-	}
 	token, err := a.cipher.Decrypt(credential.EncryptedAccessToken)
 	if err != nil {
 		return 0, err
@@ -467,6 +487,16 @@ func (a *Adapter) WarmStatsig(ctx context.Context, credential account.Credential
 		return 0, err
 	}
 	defer lease.Release()
+	if refreshErr := a.refreshStatsigPair(ctx, token, lease); refreshErr != nil {
+		a.log().Warn("web_statsig_pair_refresh_failed", "error", refreshErr)
+	}
+	if _, err := generateLocalStatsig(http.MethodPost, "/rest/app-chat/conversations/new", time.Now().Unix()); err == nil {
+		a.warmCuratedVoices(ctx, cfg, lease, token)
+		return 1, nil
+	}
+	if a.statsig == nil {
+		return 0, fmt.Errorf("Statsig 签名器未初始化")
+	}
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	warmed, err := a.statsig.Warm(ctx, cfg.BaseURL, cfg.StatsigSignerURL, token, lease, []statsigWarmTarget{
 		{method: http.MethodPost, target: baseURL + "/rest/app-chat/conversations/new"},
@@ -480,12 +510,15 @@ func (a *Adapter) WarmStatsig(ctx context.Context, credential account.Credential
 
 func (a *Adapter) invalidateSignedStatsig(method, target string) bool {
 	cfg := a.config()
-	if cfg.StatsigMode == "url" && a.statsig != nil {
-		a.statsig.Invalidate(cfg.BaseURL, cfg.StatsigSignerURL, method, target)
-		if parsed, err := url.Parse(target); err == nil {
-			a.log().Info("web_statsig_invalidated", "method", method, "path", parsed.EscapedPath())
-		}
-		return true
+	if cfg.StatsigMode == "manual" {
+		return false
 	}
-	return false
+	markStatsigPairStale()
+	if a.statsig != nil {
+		a.statsig.Invalidate(cfg.BaseURL, cfg.StatsigSignerURL, method, target)
+	}
+	if parsed, err := url.Parse(target); err == nil {
+		a.log().Info("web_statsig_invalidated", "method", method, "path", parsed.EscapedPath())
+	}
+	return true
 }

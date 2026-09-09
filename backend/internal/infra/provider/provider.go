@@ -566,8 +566,15 @@ type ImageSelectionRegion struct {
 	Points []float64
 }
 
+type ImageRegionEdit struct {
+	Regions          []ImageSelectionRegion
+	Prompt           string
+	ReferenceIndexes []int
+}
+
 type ImageEditRequest struct {
 	Credential       account.Credential
+	PublicModel      string
 	Model            string
 	Prompt           string
 	ImageURLs        []string
@@ -580,6 +587,7 @@ type ImageEditRequest struct {
 	Streaming        bool
 	PartialImages    int
 	SelectionRegions []ImageSelectionRegion
+	RegionEdits      []ImageRegionEdit
 }
 
 type ImageLayerRequest struct {
@@ -597,13 +605,10 @@ const (
 	VideoOperationExtend   = media.VideoOperationExtend
 )
 
-// ConsoleVideoMaxReferenceImages and ConsoleVideoMaxReferenceDurationSeconds
-// describe the Console reference-to-video contract enforced by the upstream.
-// They are shared by admission control and the Console adapter so invalid
-// asynchronous jobs are rejected before enqueueing without weakening the
-// adapter's final request-boundary validation.
+// ConsoleLegacyVideoMaxReferenceImages 和 ConsoleVideoMaxReferenceDurationSeconds
+// 描述旧 Console 视频模型的参考图协议，由入队校验和出站适配器共同使用。
 const (
-	ConsoleVideoMaxReferenceImages          = 7
+	ConsoleLegacyVideoMaxReferenceImages    = 7
 	ConsoleVideoMaxReferenceDurationSeconds = 10
 )
 

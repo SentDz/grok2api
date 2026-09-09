@@ -11,6 +11,7 @@ import (
 
 	auditdomain "github.com/chenyme/grok2api/backend/internal/domain/audit"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
+	"github.com/chenyme/grok2api/backend/internal/infra/provider/cli"
 )
 
 var (
@@ -46,7 +47,10 @@ func normalizeRequestWithMetadata(body []byte, spec ModelSpec, metadata *provide
 	normalizeReasoning(payload, spec)
 	updateConsoleReasoningMetadata(payload, spec, requestedEffort, metadata)
 	ensureReasoningInclude(payload)
-	toolSummary := normalizeConsoleTools(payload, spec.DisallowsClientTools)
+	toolSummary, err := normalizeConsoleTools(payload, spec.DisallowsClientTools)
+	if err != nil {
+		return nil, err
+	}
 	if err := normalizeConsoleToolChoice(payload, toolSummary, spec.DisallowsClientTools); err != nil {
 		return nil, err
 	}
@@ -248,17 +252,17 @@ type consoleToolSummary struct {
 	removedClientTools  bool
 }
 
-func normalizeConsoleTools(payload map[string]any, disallowsClientTools bool) consoleToolSummary {
+func normalizeConsoleTools(payload map[string]any, disallowsClientTools bool) (consoleToolSummary, error) {
 	summary := consoleToolSummary{}
 	value, exists := payload["tools"]
 	if !exists || value == nil {
 		delete(payload, "tools")
-		return summary
+		return summary, nil
 	}
 	tools, ok := value.([]any)
 	if !ok {
 		delete(payload, "tools")
-		return summary
+		return summary, nil
 	}
 	hasClientViewImage := hasConsoleFunctionTool(tools, "view_image")
 	result := make([]any, 0, len(tools))
@@ -344,6 +348,14 @@ func normalizeConsoleTools(payload map[string]any, disallowsClientTools bool) co
 			clean := map[string]any{"type": "function", "name": strings.TrimSpace(name)}
 			for _, field := range []string{"description", "parameters", "strict"} {
 				if fieldValue, exists := tool[field]; exists {
+					if field == "parameters" {
+						normalized, _, err := cli.NormalizeBuildFunctionParametersRoot(fieldValue, "tools.parameters", strings.TrimSpace(name))
+						if err != nil {
+							return summary, err
+						}
+						clean[field] = normalized
+						continue
+					}
 					clean[field] = fieldValue
 				}
 			}
@@ -359,10 +371,10 @@ func normalizeConsoleTools(payload map[string]any, disallowsClientTools bool) co
 	}
 	if len(result) == 0 {
 		delete(payload, "tools")
-		return summary
+		return summary, nil
 	}
 	payload["tools"] = result
-	return summary
+	return summary, nil
 }
 
 func hasConsoleFunctionTool(tools []any, target string) bool {

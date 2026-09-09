@@ -86,6 +86,19 @@ func TestCloneImageSelectionRegionsIsAccountIndependent(t *testing.T) {
 	if len(cloned) != 1 || cloned[0].Points[0] != 0.1 {
 		t.Fatalf("cloned selection regions = %#v", cloned)
 	}
+
+	edits := []provider.ImageRegionEdit{{
+		Prompt:           "111",
+		ReferenceIndexes: []int{1},
+		Regions:          []provider.ImageSelectionRegion{{Points: []float64{0.2, 0.2, 0.3, 0.2, 0.3, 0.3}}},
+	}}
+	clonedEdits := cloneImageRegionEdits(edits)
+	edits[0].Prompt = "changed"
+	edits[0].ReferenceIndexes[0] = 2
+	edits[0].Regions[0].Points[0] = 0.9
+	if clonedEdits[0].Prompt != "111" || clonedEdits[0].ReferenceIndexes[0] != 1 || clonedEdits[0].Regions[0].Points[0] != 0.2 {
+		t.Fatalf("cloned region edits = %#v", clonedEdits)
+	}
 }
 
 func TestVoiceWebSocketAuditOutcomeUsesLogicalSuccessStatus(t *testing.T) {
@@ -4939,6 +4952,9 @@ func TestIsUpstreamStreamFailureIncludesIdleTimeout(t *testing.T) {
 	}
 	if !isUpstreamStreamFailure("upstream_response_empty") {
 		t.Fatal("empty non-streaming response must update account health after handoff")
+	}
+	if !isUpstreamStreamFailure("upstream_output_loop") {
+		t.Fatal("output-loop abort must stay classified as an upstream stream failure")
 	}
 	if isUpstreamStreamFailure("") || isUpstreamStreamFailure("quality_degraded") || isUpstreamStreamFailure("client_stream_interrupted") || isUpstreamStreamFailure("request_canceled") {
 		t.Fatal("non-stream codes must not look like mid-stream failures")

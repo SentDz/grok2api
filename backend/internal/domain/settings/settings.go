@@ -18,7 +18,18 @@ const (
 	DefaultConsoleStreamIdleTimeout = 2 * time.Minute
 	MinProviderStreamIdleTimeout    = 30 * time.Second
 	MaxProviderStreamIdleTimeout    = 10 * time.Minute
+
+	DefaultWebFreeVideoDurationCap = 6
+	MinWebFreeVideoDurationCap     = 1
+	MaxWebFreeVideoDurationCap     = 15
 )
+
+func NormalizeWebFreeVideoDurationCap(value int) int {
+	if value < MinWebFreeVideoDurationCap || value > MaxWebFreeVideoDurationCap {
+		return DefaultWebFreeVideoDurationCap
+	}
+	return value
+}
 
 // Config 表示可跨重启持久化并支持热加载的网关运行参数。
 type Config struct {
@@ -77,6 +88,7 @@ type ProviderWebConfig struct {
 	VideoTimeout         time.Duration
 	MediaConcurrency     int
 	AllowNSFW            bool
+	FreeVideoDurationCap int
 	RecoveryBackoffBase  time.Duration
 	RecoveryBackoffMax   time.Duration
 }

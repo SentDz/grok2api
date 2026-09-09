@@ -333,6 +333,7 @@ type Summary struct {
 	Providers  map[string]ProviderSummary
 	Recovery   RecoverySummary
 	Issues     IssueSummary
+	WebQuota   map[string]QuotaModeSummary
 }
 
 type ProviderSummary struct {
@@ -351,15 +352,32 @@ type IssueSummary struct {
 	ReauthRequired int64
 }
 
+type QuotaModeSummary struct {
+	Remaining int64
+	Total     int64
+	Accounts  int64
+	Exhausted int64
+}
+
+type accountQuotaSummaryRepository interface {
+	SummarizeQuotaWindows(ctx context.Context, provider accountdomain.Provider, modes []string) ([]repository.AccountQuotaSummary, error)
+}
+
 func (s *Service) Summary(ctx context.Context) (Summary, error) {
 	now := s.now()
 	rows, err := s.accounts.Summarize(ctx, now)
 	if err != nil {
 		return Summary{}, err
 	}
-	result := Summary{Providers: make(map[string]ProviderSummary, len(accountdomain.Providers()))}
+	result := Summary{
+		Providers: make(map[string]ProviderSummary, len(accountdomain.Providers())),
+		WebQuota:  make(map[string]QuotaModeSummary, len(accountdomain.WebImagineQuotaModes())),
+	}
 	for _, providerValue := range accountdomain.Providers() {
 		result.Providers[string(providerValue)] = ProviderSummary{}
+	}
+	for _, mode := range accountdomain.WebImagineQuotaModes() {
+		result.WebQuota[mode] = QuotaModeSummary{}
 	}
 	for _, row := range rows {
 		result.Total += row.Total
@@ -373,6 +391,15 @@ func (s *Service) Summary(ctx context.Context) (Summary, error) {
 	}
 	result.Recovering = result.Recovery.Cooldown + result.Recovery.WaitingReset + result.Recovery.Probing
 	result.Attention = result.Issues.Disabled + result.Issues.ReauthRequired
+	if quotaRepository, ok := s.accounts.(accountQuotaSummaryRepository); ok {
+		quotaRows, quotaErr := quotaRepository.SummarizeQuotaWindows(ctx, accountdomain.ProviderWeb, accountdomain.WebImagineQuotaModes())
+		if quotaErr != nil {
+			return Summary{}, quotaErr
+		}
+		for _, row := range quotaRows {
+			result.WebQuota[row.Mode] = QuotaModeSummary{Remaining: row.Remaining, Total: row.Total, Accounts: row.Accounts, Exhausted: row.Exhausted}
+		}
+	}
 	indexed, hasIndex := s.accounts.(buildBotFlagIndexRepository)
 	var flaggedIDs []uint64
 	var buildRisk int64

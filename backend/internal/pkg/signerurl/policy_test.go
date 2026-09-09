@@ -5,6 +5,7 @@ import "testing"
 func TestValidateAllowsPublicHTTPSAndTrustedInternalSigner(t *testing.T) {
 	for _, value := range []string{
 		"https://grok.wodf.de/sign",
+		"https://signer.example.com/sign",
 		"http://grok-signer-go:8788/sign",
 		"http://localhost:8788/sign",
 		"http://host.docker.internal:8788/sign",

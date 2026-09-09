@@ -35,6 +35,8 @@ const (
 	imagineSelfUploadSource       = "IMAGINE_SELF_UPLOAD_FILE_SOURCE"
 	directFileUploadResponseLimit = 2 << 20
 	segmentResponseLimit          = 2 << 20
+	maxImageRegionEdits           = 8
+	maxImageSelectionRegions      = 8
 )
 
 var errLiteImageReady = errors.New("Lite 图片已完成")
@@ -773,14 +775,22 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 // response. Reacquiring the lease is required because the failed lease keeps
 // the immutable browser-session cookies that were rejected upstream.
 func (a *Adapter) EditImage(ctx context.Context, request provider.ImageEditRequest) (*provider.Response, error) {
-	if len(request.SelectionRegions) > 1 {
-		return invalidImageRequest("selection_regions 当前仅支持一个选区")
+	if len(request.SelectionRegions) > 0 && len(request.RegionEdits) > 0 {
+		return invalidImageRequest("selection_regions 与 multi_region_edits 不能同时使用")
 	}
-	if len(request.SelectionRegions) > 0 && len(request.ImageURLs) != 1 {
-		return invalidImageRequest("蒙版编辑仅支持一张待编辑图片，不支持额外参考图")
+	if len(request.SelectionRegions) > maxImageSelectionRegions {
+		return invalidImageRequest("selection_regions 最多支持 8 个选区")
 	}
-	if len(request.SelectionRegions) > 0 && request.Streaming {
-		return invalidImageRequest("selection_regions 暂不支持流式图片编辑")
+	if len(request.RegionEdits) > maxImageRegionEdits {
+		return invalidImageRequest("multi_region_edits 最多支持 8 组分段编辑")
+	}
+	for _, edit := range request.RegionEdits {
+		if len(edit.Regions) == 0 || len(edit.Regions) > maxImageSelectionRegions {
+			return invalidImageRequest("每组分段编辑必须包含 1 到 8 个选区")
+		}
+	}
+	if (len(request.SelectionRegions) > 0 || len(request.RegionEdits) > 0) && request.Streaming {
+		return invalidImageRequest("分段编辑暂不支持流式图片编辑")
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		response, err := a.editImageAttempt(ctx, request)
@@ -803,8 +813,13 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 	if strings.TrimSpace(request.Quality) != "" {
 		return invalidImageRequest("Grok Web 图片模型不支持 quality")
 	}
-	if len(request.ImageURLs) == 0 || len(request.ImageURLs) > 8 {
-		return jsonProviderResponse(http.StatusBadRequest, map[string]any{"error": map[string]any{"message": "image 数量必须在 1 到 8 之间", "type": "invalid_request_error"}}), nil
+	limitModel := request.PublicModel
+	if strings.TrimSpace(limitModel) == "" {
+		limitModel = request.Model
+	}
+	maxImages := mediadomain.ReferenceImageLimit(limitModel)
+	if len(request.ImageURLs) == 0 || len(request.ImageURLs) > maxImages {
+		return jsonProviderResponse(http.StatusBadRequest, map[string]any{"error": map[string]any{"message": fmt.Sprintf("image 数量必须在 1 到 %d 之间", maxImages), "type": "invalid_request_error"}}), nil
 	}
 	count := request.Count
 	if count <= 0 {
@@ -871,8 +886,18 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		}
 		assets = append(assets, uploaded.MetadataID)
 	}
-	payload := buildImageEditPayload(request.Prompt, assets, ratio, request.SelectionRegions)
-	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, cfg.BaseURL+"/imagine")
+	payload := buildImageEditPayload(imageEditPayloadOptions{
+		Prompt:      request.Prompt,
+		Assets:      assets,
+		AspectRatio: ratio,
+		Regions:     request.SelectionRegions,
+		Edits:       request.RegionEdits,
+	})
+	referer := cfg.BaseURL + "/imagine"
+	if len(assets) > 0 && (len(request.SelectionRegions) > 0 || len(request.RegionEdits) > 0) {
+		referer = cfg.BaseURL + "/imagine/post/" + url.PathEscape(assets[0]) + "?scope=asset"
+	}
+	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, referer)
 	if err != nil {
 		return nil, err
 	}
@@ -926,26 +951,105 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 	return result, err
 }
 
-func buildImageEditPayload(prompt string, assets []string, aspectRatio string, regions []provider.ImageSelectionRegion) map[string]any {
+type imageEditPayloadOptions struct {
+	Prompt      string
+	Assets      []string
+	AspectRatio string
+	Regions     []provider.ImageSelectionRegion
+	Edits       []provider.ImageRegionEdit
+}
+
+func buildImageEditPayload(options imageEditPayloadOptions) map[string]any {
+	prompt := options.Prompt
+	if combined := joinImageRegionEditPrompts(options.Edits); combined != "" {
+		prompt = combined
+	}
 	imageToImage := map[string]any{
 		"prompt":      prompt,
-		"inputAssets": assets,
+		"inputAssets": options.Assets,
 	}
-	if aspectRatio != "" {
-		imageToImage["aspectRatio"] = aspectRatio
+	if options.AspectRatio != "" && len(options.Edits) == 0 && len(options.Regions) == 0 {
+		imageToImage["aspectRatio"] = options.AspectRatio
 	}
-	if len(regions) > 0 {
-		items := make([]map[string]any, 0, len(regions))
-		for _, region := range regions {
-			items = append(items, map[string]any{"outer": map[string]any{"points": append([]float64(nil), region.Points...)}})
+	edits := options.Edits
+	if len(edits) == 0 && len(options.Regions) > 0 {
+		refs := make([]int, 0, max(0, len(options.Assets)-1))
+		for index := 1; index < len(options.Assets); index++ {
+			refs = append(refs, index)
 		}
-		imageToImage["selectionRegions"] = items
+		edits = []provider.ImageRegionEdit{{
+			Regions:          options.Regions,
+			Prompt:           prompt,
+			ReferenceIndexes: refs,
+		}}
 	}
-	return map[string]any{
+	if len(edits) > 0 {
+		items := make([]map[string]any, 0, len(edits))
+		for _, edit := range edits {
+			item := map[string]any{
+				"regions": selectionRegionPayloads(edit.Regions),
+				"prompt":  edit.Prompt,
+			}
+			if refs := regionEditReferenceAssets(options.Assets, edit.ReferenceIndexes); len(refs) > 0 {
+				item["referenceAssets"] = refs
+			}
+			items = append(items, item)
+		}
+		imageToImage["multiRegionEdits"] = items
+	}
+	payload := map[string]any{
 		"modelName": "imagine-image-edit", "message": prompt,
 		"enableImageStreaming": true, "enableSideBySide": true, "sendFinalMetadata": true,
 		"mediaGenInput": map[string]any{"imageToImage": imageToImage},
 	}
+	if len(edits) > 0 {
+		payload["responseMetadata"] = map[string]any{
+			"modelConfigOverride": map[string]any{
+				"modelMap": map[string]any{"imageEditModel": "imagine"},
+			},
+		}
+		payload["kind"] = "CONVERSATION_KIND_IMAGINE"
+	}
+	return payload
+}
+
+func joinImageRegionEditPrompts(edits []provider.ImageRegionEdit) string {
+	prompts := make([]string, 0, len(edits))
+	for _, edit := range edits {
+		value := strings.TrimSpace(edit.Prompt)
+		if value != "" {
+			prompts = append(prompts, value)
+		}
+	}
+	return strings.Join(prompts, "; ")
+}
+
+func selectionRegionPayloads(regions []provider.ImageSelectionRegion) []map[string]any {
+	items := make([]map[string]any, 0, len(regions))
+	for _, region := range regions {
+		items = append(items, map[string]any{"outer": map[string]any{"points": append([]float64(nil), region.Points...)}})
+	}
+	return items
+}
+
+func regionEditReferenceAssets(assets []string, indexes []int) []string {
+	if len(indexes) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(indexes))
+	seen := make(map[string]struct{}, len(indexes))
+	for _, index := range indexes {
+		if index <= 0 || index >= len(assets) {
+			continue
+		}
+		asset := assets[index]
+		if _, exists := seen[asset]; exists {
+			continue
+		}
+		seen[asset] = struct{}{}
+		refs = append(refs, asset)
+	}
+	return refs
 }
 
 func resolveImageEditAspectRatio(aspectRatio, size string) (string, error) {

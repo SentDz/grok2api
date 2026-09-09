@@ -158,6 +158,12 @@ type imageEditJSONSelectionRegion struct {
 	} `json:"outer"`
 }
 
+type imageEditJSONRegionEdit struct {
+	Regions         []imageEditJSONSelectionRegion `json:"regions"`
+	Prompt          string                         `json:"prompt"`
+	ReferenceImages []imageEditJSONImage           `json:"reference_images"`
+}
+
 type imageEditJSONRequest struct {
 	Model            string                         `json:"model"`
 	Prompt           string                         `json:"prompt"`
@@ -173,6 +179,7 @@ type imageEditJSONRequest struct {
 	Stream           bool                           `json:"stream"`
 	PartialImages    *int                           `json:"partial_images"`
 	SelectionRegions []imageEditJSONSelectionRegion `json:"selection_regions"`
+	MultiRegionEdits []imageEditJSONRegionEdit      `json:"multi_region_edits"`
 }
 
 type videoGenerationImage struct {
@@ -618,8 +625,9 @@ func (h *Handler) editImage(c *gin.Context) {
 	if request.Image != nil {
 		inputs = append([]imageEditJSONImage{*request.Image}, inputs...)
 	}
-	if len(inputs) == 0 || len(inputs) > 8 {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "image 或 images 数量必须在 1 到 8 之间")
+	maxImages := mediadomain.ReferenceImageLimit(model)
+	if len(inputs) == 0 || len(inputs) > maxImages {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", fmt.Sprintf("image 或 images 数量必须在 1 到 %d 之间", maxImages))
 		return
 	}
 	imageURLs := make([]string, 0, len(inputs))
@@ -636,7 +644,7 @@ func (h *Handler) editImage(c *gin.Context) {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "每个 image 都必须提供有效 url")
 		return
 	}
-	if model == "" || prompt == "" {
+	if model == "" {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "图片编辑缺少有效 model 或 prompt")
 		return
 	}
@@ -674,31 +682,91 @@ func (h *Handler) editImage(c *gin.Context) {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "resolution 必须是 1k 或 2k")
 		return
 	}
+	if len(request.SelectionRegions) > 0 && len(request.MultiRegionEdits) > 0 {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions 与 multi_region_edits 不能同时使用")
+		return
+	}
 	selectionRegions := make([]provider.ImageSelectionRegion, 0, len(request.SelectionRegions))
-	if len(request.SelectionRegions) > 1 {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions 当前仅支持一个选区")
+	if len(request.SelectionRegions) > maxImageSelectionRegions {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions 最多支持 8 个选区")
 		return
 	}
 	for _, region := range request.SelectionRegions {
-		points := region.Outer.Points
-		if len(points) < 6 || len(points) > 128 || len(points)%2 != 0 {
-			writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions.outer.points 必须包含 3 到 64 个坐标点")
+		parsed, message := parseImageSelectionRegion(region)
+		if message != "" {
+			writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", message)
 			return
 		}
-		for _, point := range points {
-			if math.IsNaN(point) || math.IsInf(point, 0) || point < 0 || point > 1 {
-				writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "selection_regions 坐标必须在 0 到 1 之间")
-				return
-			}
-		}
-		selectionRegions = append(selectionRegions, provider.ImageSelectionRegion{Points: append([]float64(nil), points...)})
+		selectionRegions = append(selectionRegions, parsed)
 	}
-	if len(selectionRegions) > 0 && request.Stream {
-		writeOpenAIError(c, http.StatusBadRequest, "unsupported_parameter", "selection_regions 暂不支持 stream=true")
+	regionEdits := make([]provider.ImageRegionEdit, 0, len(request.MultiRegionEdits))
+	if len(request.MultiRegionEdits) > maxImageRegionEdits {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "multi_region_edits 最多支持 8 组分段编辑")
 		return
 	}
-	if len(selectionRegions) > 0 && len(imageURLs) != 1 {
-		writeOpenAIError(c, http.StatusBadRequest, "unsupported_parameter", "蒙版编辑仅支持一张待编辑图片，不支持额外参考图")
+	indexOf := make(map[string]int, len(imageURLs))
+	for index, value := range imageURLs {
+		indexOf[value] = index
+	}
+	for _, edit := range request.MultiRegionEdits {
+		if len(edit.Regions) == 0 || len(edit.Regions) > maxImageSelectionRegions {
+			writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "multi_region_edits.regions 必须包含 1 到 8 个选区")
+			return
+		}
+		regions := make([]provider.ImageSelectionRegion, 0, len(edit.Regions))
+		for _, region := range edit.Regions {
+			parsed, message := parseImageSelectionRegion(region)
+			if message != "" {
+				writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", message)
+				return
+			}
+			regions = append(regions, parsed)
+		}
+		editPrompt := strings.TrimSpace(edit.Prompt)
+		if editPrompt == "" {
+			editPrompt = prompt
+		}
+		if editPrompt == "" {
+			writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "multi_region_edits.prompt 不能为空")
+			return
+		}
+		refs := make([]int, 0, len(edit.ReferenceImages))
+		for _, image := range edit.ReferenceImages {
+			next, index, message := appendImageEditURL(imageURLs, indexOf, image)
+			if message != "" {
+				writeOpenAIError(c, http.StatusBadRequest, "invalid_request", message)
+				return
+			}
+			imageURLs = next
+			if index > 0 {
+				refs = append(refs, index)
+			}
+		}
+		regionEdits = append(regionEdits, provider.ImageRegionEdit{
+			Regions:          regions,
+			Prompt:           editPrompt,
+			ReferenceIndexes: refs,
+		})
+	}
+	if len(imageURLs) > maxImages {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", fmt.Sprintf("image 或 images 数量必须在 1 到 %d 之间", maxImages))
+		return
+	}
+	if prompt == "" {
+		prompts := make([]string, 0, len(regionEdits))
+		for _, edit := range regionEdits {
+			if value := strings.TrimSpace(edit.Prompt); value != "" {
+				prompts = append(prompts, value)
+			}
+		}
+		prompt = strings.Join(prompts, "; ")
+	}
+	if prompt == "" {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "图片编辑缺少有效 model 或 prompt")
+		return
+	}
+	if (len(selectionRegions) > 0 || len(regionEdits) > 0) && request.Stream {
+		writeOpenAIError(c, http.StatusBadRequest, "unsupported_parameter", "分段编辑暂不支持 stream=true")
 		return
 	}
 	quality := strings.ToLower(strings.TrimSpace(request.Quality))
@@ -714,7 +782,8 @@ func (h *Handler) editImage(c *gin.Context) {
 		RequestID: requestID, ClientKey: clientKey, PublicModel: model, Prompt: prompt,
 		ImageURLs: imageURLs, Count: count, Size: size, AspectRatio: aspectRatio,
 		Resolution: resolution, Quality: quality, ResponseFormat: request.ResponseFormat,
-		Streaming: request.Stream, PartialImages: partialImages, SelectionRegions: selectionRegions,
+		Streaming: request.Stream, PartialImages: partialImages,
+		SelectionRegions: selectionRegions, RegionEdits: regionEdits,
 		Method: c.Request.Method, Path: c.Request.URL.Path, Headers: c.Request.Header.Clone(),
 	})
 	if err != nil {
@@ -945,8 +1014,9 @@ func (h *Handler) handleVideoCreate(c *gin.Context, operation, label string) {
 			writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "image 不能与 reference_images/reference_audios 同时使用")
 			return
 		}
-		if len(referenceURLs) > mediadomain.MaxInputImages {
-			writeOpenAIError(c, http.StatusBadRequest, "invalid_request", fmt.Sprintf("reference_images 不能超过 %d 张", mediadomain.MaxInputImages))
+		maxReferenceImages := mediadomain.ReferenceImageLimit(request.Model)
+		if len(referenceURLs) > maxReferenceImages {
+			writeOpenAIError(c, http.StatusBadRequest, "invalid_request", fmt.Sprintf("reference_images 不能超过 %d 张", maxReferenceImages))
 			return
 		}
 		hasReferenceMode := len(referenceURLs) > 0 || len(referenceAudios) > 0
@@ -1246,6 +1316,42 @@ func validImageEditSize(value string) bool {
 	}
 }
 
+const (
+	maxImageRegionEdits      = 8
+	maxImageSelectionRegions = 8
+	minImageSelectionCoords  = 6
+	maxImageSelectionCoords  = 4096
+)
+
+func parseImageSelectionRegion(region imageEditJSONSelectionRegion) (provider.ImageSelectionRegion, string) {
+	points := region.Outer.Points
+	if len(points) < minImageSelectionCoords || len(points) > maxImageSelectionCoords || len(points)%2 != 0 {
+		return provider.ImageSelectionRegion{}, "selection_regions.outer.points 必须包含 3 到 2048 个坐标点"
+	}
+	for _, point := range points {
+		if math.IsNaN(point) || math.IsInf(point, 0) || point < 0 || point > 1 {
+			return provider.ImageSelectionRegion{}, "selection_regions 坐标必须在 0 到 1 之间"
+		}
+	}
+	return provider.ImageSelectionRegion{Points: append([]float64(nil), points...)}, ""
+}
+
+func appendImageEditURL(imageURLs []string, indexOf map[string]int, image imageEditJSONImage) ([]string, int, string) {
+	if strings.TrimSpace(image.FileID) != "" {
+		return imageURLs, -1, "当前暂不支持 image.file_id，请使用 image.url"
+	}
+	value := strings.TrimSpace(image.URL)
+	if value == "" {
+		return imageURLs, -1, "每个 image 都必须提供有效 url"
+	}
+	if index, ok := indexOf[value]; ok {
+		return imageURLs, index, ""
+	}
+	index := len(imageURLs)
+	indexOf[value] = index
+	return append(imageURLs, value), index, ""
+}
+
 func videoGenerationResponse(job mediadomain.Job, contentURLs ...string) gin.H {
 	switch job.Status {
 	case mediadomain.StatusCompleted:
@@ -1456,10 +1562,30 @@ func (h *Handler) writeProtocolResult(c *gin.Context, result *gateway.Result, st
 		return
 	}
 	copyHeaders(c.Writer.Header(), result.Header)
-	c.Status(result.StatusCode)
 	if result.StatusCode >= 400 {
 		errorCode = "upstream_error"
+		if stream && !isEventStreamContentType(result.Header.Get("Content-Type")) {
+			raw, readErr := io.ReadAll(io.LimitReader(result.Body, maxJSONResponseTransferBytes+1))
+			if readErr != nil {
+				if anthropic {
+					writeAnthropicError(c, http.StatusBadGateway, "api_error", "读取上游错误响应失败", "upstream_error")
+				} else {
+					writeOpenAIError(c, http.StatusBadGateway, "upstream_error", "读取上游错误响应失败")
+				}
+				return
+			}
+			c.Writer.Header().Del("Content-Length")
+			code, message := gateway.ClassifyUpstreamHTTPError(result.StatusCode, raw)
+			errorCode = code
+			if anthropic {
+				writeAnthropicError(c, result.StatusCode, anthropicUpstreamHTTPErrorType(result.StatusCode), message, errorCode)
+			} else {
+				writeOpenAIError(c, result.StatusCode, errorCode, message)
+			}
+			return
+		}
 	}
+	c.Status(result.StatusCode)
 	var err error
 	if stream {
 		metadata, copyErr := copyStreamWithFallbackModel(c.Writer, result.Body, protocol, result.MarkFirstToken, fallbackModel)
@@ -1473,6 +1599,21 @@ func (h *Handler) writeProtocolResult(c *gin.Context, result *gateway.Result, st
 	}
 	if err != nil {
 		errorCode = classifyCopyError(c.Request.Context(), err)
+	}
+}
+
+func anthropicUpstreamHTTPErrorType(status int) string {
+	switch status {
+	case http.StatusBadRequest, http.StatusConflict, http.StatusUnprocessableEntity:
+		return "invalid_request_error"
+	case http.StatusNotFound:
+		return "not_found_error"
+	case http.StatusTooManyRequests:
+		return "rate_limit_error"
+	case http.StatusRequestTimeout, http.StatusGatewayTimeout:
+		return "timeout_error"
+	default:
+		return "api_error"
 	}
 }
 
@@ -1494,6 +1635,8 @@ func classifyCopyError(ctx context.Context, err error) string {
 		return "upstream_stream_idle_timeout"
 	case errors.Is(err, neterror.ErrUpstreamResponseEmpty):
 		return "upstream_response_empty"
+	case errors.Is(err, neterror.ErrUpstreamOutputLoop):
+		return "upstream_output_loop"
 	case errors.Is(err, errUpstreamStreamRead):
 		return "upstream_stream_interrupted"
 	default:
@@ -1639,6 +1782,8 @@ func streamAbortTrailer(protocol streamProtocol, cause error, meta responseMetad
 	switch {
 	case errors.Is(cause, neterror.ErrUpstreamStreamIdleTimeout):
 		code, message = "upstream_stream_idle_timeout", "上游流式响应长时间无数据"
+	case errors.Is(cause, neterror.ErrUpstreamOutputLoop):
+		code, message = "upstream_output_loop", "上游输出陷入循环"
 	case errors.Is(cause, errUpstreamStreamIncomplete):
 		code, message = "upstream_stream_incomplete", "上游流式响应未完整结束"
 	}
@@ -1696,9 +1841,13 @@ func streamAbortTrailer(protocol streamProtocol, cause error, meta responseMetad
 		}
 		return []byte("event: response.failed\ndata: " + string(payload) + "\n\n")
 	case streamProtocolAnthropic:
+		anthropicMessage := message
+		if code == "upstream_output_loop" {
+			anthropicMessage = code + ": " + message
+		}
 		payload, err := json.Marshal(map[string]any{
 			"type":  "error",
-			"error": map[string]any{"type": "api_error", "message": message},
+			"error": map[string]any{"type": "api_error", "message": anthropicMessage},
 		})
 		if err != nil {
 			return nil
@@ -2386,6 +2535,11 @@ func copyHeaders(destination, source http.Header) {
 			destination.Add(name, value)
 		}
 	}
+}
+
+func isEventStreamContentType(value string) bool {
+	mediaType, _, err := mime.ParseMediaType(value)
+	return err == nil && strings.EqualFold(mediaType, "text/event-stream")
 }
 
 func writeOpenAIError(c *gin.Context, status int, code, message string) {
