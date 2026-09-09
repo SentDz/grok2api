@@ -165,9 +165,9 @@ const DefaultBuildFallbackBaseURL = "https://api.x.ai/v1"
 
 type WebProviderConfig struct {
 	BaseURL              string   `yaml:"baseURL"`
-	StatsigMode          string   `yaml:"-"`
+	StatsigMode          string   `yaml:"statsigMode"`
 	StatsigManualValue   string   `yaml:"-"`
-	StatsigSignerURL     string   `yaml:"-"`
+	StatsigSignerURL     string   `yaml:"statsigSignerURL"`
 	ClearanceMode        string   `yaml:"-"`
 	FlareSolverrURL      string   `yaml:"-"`
 	ClearanceTimeout     Duration `yaml:"-"`
@@ -408,10 +408,20 @@ func Load(path string) (Config, error) {
 	if err := applyEnvironmentOverrides(&cfg); err != nil {
 		return Config{}, err
 	}
+	normalizeWebStatsig(&cfg)
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func normalizeWebStatsig(cfg *Config) {
+	if strings.TrimSpace(cfg.Provider.Web.StatsigMode) == "" {
+		cfg.Provider.Web.StatsigMode = StatsigModeURL
+	}
+	if strings.TrimSpace(cfg.Provider.Web.StatsigSignerURL) == "" {
+		cfg.Provider.Web.StatsigSignerURL = DefaultStatsigSignerURL
+	}
 }
 
 // applyEnvironmentOverrides applies typed, application-owned environment

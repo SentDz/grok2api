@@ -54,3 +54,6 @@ __pycache__/
 # Local research dumps and test fixtures
 /briefs/
 /output/
+backend/internal/infra/provider/web/testdata/*.debug.json
+tools/statsig-signer/data/frontend_fingerprint.json
+tools/statsig-signer/.venv/
