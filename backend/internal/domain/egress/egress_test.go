@@ -1,6 +1,28 @@
 package egress
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestProbeIntervalDisabledAndLargeValues(t *testing.T) {
+	maxSeconds := int(^uint(0) >> 1)
+	longDuration := time.Duration(1<<63 - 1)
+	if int64(maxSeconds) <= int64(longDuration/time.Second) {
+		longDuration = time.Duration(maxSeconds) * time.Second
+	}
+	for _, tc := range []struct {
+		seconds int
+		want    time.Duration
+	}{
+		{0, 0}, {60, time.Minute}, {86401, 86401 * time.Second},
+		{maxSeconds, longDuration},
+	} {
+		if got := (OperationsConfig{ProbeIntervalSeconds: tc.seconds}).ProbeInterval(); got != tc.want {
+			t.Fatalf("seconds=%d duration=%s want=%s", tc.seconds, got, tc.want)
+		}
+	}
+}
 
 func TestSupportsScopePreservesPrimaryAndResourceCompatibility(t *testing.T) {
 	tests := []struct {

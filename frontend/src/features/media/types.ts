@@ -44,6 +44,7 @@ export type VideoTaskEvent = {
   egressScope?: string;
   egressMode?: string;
   deadlineAt?: string;
+  cooldownUntil?: string;
 };
 
 export type VideoJobDetailDTO = MediaJobDTO & {

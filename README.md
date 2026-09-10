@@ -415,12 +415,15 @@ Egress nodes are scoped to Build, Web, Web submissions, Console, Web assets, or 
 
 When video task logging is enabled, the timeline separates submission egress preparation, Statsig cache or concurrent refresh waits, Grok page fetches, URL signer calls, connection acquisition, request transmission, response-header waits, and body reads. Events show millisecond durations, selected egress, HTTP status, and the active request deadline. Signatures, cookies, proxy credentials, and request bodies are excluded. Startup migration also permits `grok_web_submit` in video job records so progress and diagnostics can be persisted.
 
+An explicit HTTP 429 from a Web video generation submission preserves account quota and cools the actual submission node for three minutes before retrying with another account and node. The hold is persisted separately and cannot be bypassed by proxy-pool mode, account bindings, probes, or health updates; streams already in progress are not interrupted. Retry routes do not change permanent account bindings. A job never reuses a node that returned 429, attempts at most five nodes subject to the video attempt limit, and stops as rate-limited immediately if no alternative is available. Upload, download, polling, and Statsig-service 429 responses are outside this policy.
+
 The admin console supports:
 
 - HTTP, HTTPS, SOCKS4/4A, SOCKS5/5H, Resin, Trojan, VLESS, Shadowsocks, and VMess
 - TCP, WebSocket, and TLS tunnel transports; unsupported variants are rejected during import
 - Subscription and text/Base64 import
 - Batch probes, filtering, deletion, assignment, and balancing
+- Periodic node checks can be disabled (`probeIntervalSeconds=0`); enabled intervals are at least 60 seconds with no configured upper limit. Manual checks and immediate failure-recovery probes remain available
 - Fallback per scope: none, direct, or a fixed node
 - Proxy-pool mode without global cooldown after one connection failure
 - Immediate recovery probes after fixed-proxy transport failures, with per-node coalescing and bounded waiting for fast retry

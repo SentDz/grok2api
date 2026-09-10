@@ -106,6 +106,7 @@ export function VideoTaskDialog({ jobId, onClose }: { jobId: string | null; onCl
                           event.httpStatus ? `HTTP ${event.httpStatus}` : "",
                         ].filter(Boolean).join(" · ")}</p> : null}
                         {event.error ? <p className="whitespace-pre-wrap break-all text-destructive">{event.httpStatus ? `HTTP ${event.httpStatus} · ` : ""}{event.error}</p> : null}
+                        {event.cooldownUntil ? <p className="break-words text-[11px] text-muted-foreground">{t("videoTask.nodeCooldownUntil")}: {preciseDate(event.cooldownUntil)}</p> : null}
                       </div>
                     </li>
                   ))}

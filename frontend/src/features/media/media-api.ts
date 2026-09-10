@@ -105,6 +105,7 @@ const videoTaskEventShape = hasShape({
   itemIndex: isNumber, itemTotal: isNumber, error: isString, httpStatus: isNumber,
   request: isOptional(isString), egressNodeId: isOptional(isNumber), egressNodeName: isOptional(isString),
   egressScope: isOptional(isString), egressMode: isOptional(isString), deadlineAt: isOptional(isString),
+  cooldownUntil: isOptional(isString),
 });
 const decodeVideoDetail = createObjectDecoder<VideoJobDetailDTO>("video detail", {
   ...mediaJobShape,

@@ -182,6 +182,9 @@ func (d *Database) initializeSchema(ctx context.Context) error {
 	if err := d.ensureConsoleConstraints(ctx); err != nil {
 		return fmt.Errorf("迁移 Console 数据库约束: %w", err)
 	}
+	if err := d.ensureEgressProbeIntervalConstraint(ctx); err != nil {
+		return fmt.Errorf("迁移节点检测间隔约束: %w", err)
+	}
 	if err := d.ensureEgressAssetScopeConstraints(ctx); err != nil {
 		return fmt.Errorf("迁移资源出口数据库约束: %w", err)
 	}
@@ -507,6 +510,12 @@ type consoleConstraint struct {
 	model any
 	table string
 	name  string
+}
+
+func (d *Database) ensureEgressProbeIntervalConstraint(ctx context.Context) error {
+	return d.ensureNamedConstraints(ctx, []consoleConstraint{
+		{model: &egressOperationsConfigModel{}, table: "egress_operations_config", name: "chk_egress_operations_config_probe_interval"},
+	}, "probe_interval_seconds >= 60")
 }
 
 func (d *Database) ensureConsoleConstraints(ctx context.Context) error {

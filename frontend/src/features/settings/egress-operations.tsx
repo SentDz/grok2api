@@ -123,6 +123,7 @@ export function EgressAutomation({ scopeLabel }: { scopeLabel: (scope: EgressSco
   const operationsQuery = useQuery({ queryKey: ["egress-operations"], queryFn: getEgressOperationsConfig });
   const nodesQuery = useQuery({ queryKey: ["egress-nodes", "fallback-options"], queryFn: () => listAllEgressNodes() });
   const operationsForm = operationsDraft ?? operationsFormFrom(operationsQuery.data);
+  const [previousProbeInterval, setPreviousProbeInterval] = useState(900);
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["egress-nodes"] });
@@ -183,10 +184,16 @@ export function EgressAutomation({ scopeLabel }: { scopeLabel: (scope: EgressSco
               </Select>
             </AutomationRow>
             <AutomationRow controlId="egress-probe-interval" label={t("settings.egress.probeInterval")} description={t("settings.egress.probeIntervalHelp")}>
-              <IntervalInput id="egress-probe-interval" value={operationsForm.probeIntervalSeconds} unit={t("settings.units.seconds")} onChange={(probeIntervalSeconds) => setOperationsDraft({ ...operationsForm, probeIntervalSeconds })} />
+              <div className="flex min-w-0 items-center gap-3">
+                <Switch aria-label={t("settings.egress.periodicProbing")} checked={operationsForm.probeIntervalSeconds !== 0} onCheckedChange={(enabled) => {
+                  if (!enabled && operationsForm.probeIntervalSeconds >= 60) setPreviousProbeInterval(operationsForm.probeIntervalSeconds);
+                  setOperationsDraft({ ...operationsForm, probeIntervalSeconds: enabled ? previousProbeInterval : 0 });
+                }} />
+                <IntervalInput id="egress-probe-interval" disabled={operationsForm.probeIntervalSeconds === 0} value={operationsForm.probeIntervalSeconds || previousProbeInterval} unit={t("settings.units.seconds")} onChange={(probeIntervalSeconds) => setOperationsDraft({ ...operationsForm, probeIntervalSeconds })} />
+              </div>
             </AutomationRow>
             <AutomationRow controlId="egress-assignment-interval" label={t("settings.egress.assignmentInterval")} description={t("settings.egress.assignmentIntervalHelp")}>
-              <IntervalInput id="egress-assignment-interval" value={operationsForm.assignmentIntervalSeconds} unit={t("settings.units.seconds")} onChange={(assignmentIntervalSeconds) => setOperationsDraft({ ...operationsForm, assignmentIntervalSeconds })} />
+              <IntervalInput id="egress-assignment-interval" max={86400} value={operationsForm.assignmentIntervalSeconds} unit={t("settings.units.seconds")} onChange={(assignmentIntervalSeconds) => setOperationsDraft({ ...operationsForm, assignmentIntervalSeconds })} />
             </AutomationRow>
             <AutomationRow controlId="egress-auto-assign" label={t("settings.egress.autoAssign")} description={t("settings.egress.autoAssignHelp")}>
               <div className="flex h-8 items-center"><Switch id="egress-auto-assign" checked={operationsForm.autoAssignEnabled} onCheckedChange={(autoAssignEnabled) => setOperationsDraft({ ...operationsForm, autoAssignEnabled })} /></div>
@@ -444,10 +451,10 @@ function AutomationRow({ controlId, label, description, error, children }: { con
   );
 }
 
-function IntervalInput({ id, value, unit, onChange }: { id: string; value: number; unit: string; onChange: (value: number) => void }) {
+function IntervalInput({ id, value, unit, onChange, max, disabled }: { id: string; value: number; unit: string; onChange: (value: number) => void; max?: number; disabled?: boolean }) {
   return (
-    <div className="flex min-w-0">
-      <Input id={id} className="min-w-0 rounded-r-none" type="number" min={60} max={86400} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    <div className="flex min-w-0 flex-1">
+      <Input id={id} className="min-w-0 rounded-r-none" type="number" min={60} max={max} disabled={disabled} value={value} onChange={(event) => onChange(Number(event.target.value))} />
       <div className="flex h-8 w-16 shrink-0 items-center rounded-r-md bg-secondary/55 px-3 text-xs text-foreground">{unit}</div>
     </div>
   );

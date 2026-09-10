@@ -31,6 +31,7 @@ const (
 	videoJobLease            = videoJobTimeout + 5*time.Minute
 	videoJobRecoveryInterval = 30 * time.Second
 	videoOutputAttempts      = 4
+	maxVideoRateLimitedNodes = 5
 	// Base64 物化会同时持有原图和编码后字符串，单独限流避免高 mediaConcurrency 放大内存峰值。
 	videoInputMaterializeConcurrency = 4
 	videoInputJSONBaseBytes          = int64(len(`{"image_urls":[]}`))
@@ -771,6 +772,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 	excluded := make(map[uint64]bool)
 	forbiddenEgressRetried := make(map[uint64]bool)
 	var retryPinnedAccountID uint64
+	var rateLimitedVideoNodes []uint64
 	failureAttempts := newFailureAttemptRecorder(http.MethodPost, "/videos/generations")
 	var selection *selectionSession
 	var lease *accountLease
@@ -916,7 +918,34 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 		stage, hasStage := provider.VideoErrorStage(err)
 		safeCreateFailure := hasStage && stage == provider.VideoStageCreate
 		status, hasStatus := provider.ErrorHTTPStatus(err)
-		if errors.Is(err, provider.ErrUnauthorized) {
+		var submissionLimit *provider.VideoSubmissionRateLimitError
+		if lease.Credential.Provider == account.ProviderWeb && errors.As(err, &submissionLimit) {
+			failureHandled = true
+			rateLimitedVideoNodes = append(rateLimitedVideoNodes, submissionLimit.NodeID)
+			// Account quota remains authoritative. A rejected submission only
+			// excludes this account and node from the current job's next attempt.
+			if safeCreateFailure && !pinnedOnly && submissionLimit.CoolingError == nil && len(rateLimitedVideoNodes) < maxVideoRateLimitedNodes && attemptPolicy.hasNext(attempt) {
+				provider.ReportVideoStep(ctx, "select_video_retry_node")
+				if retrier, ok := adapter.(provider.VideoEgressRetrier); ok {
+					nextNode, selectErr := retrier.SelectVideoRetryNode(failureCtx, rateLimitedVideoNodes)
+					if selectErr == nil && nextNode != 0 {
+						ctx = infraegress.WithVideoRetryNode(ctx, nextNode)
+						retriableCreate = true
+						s.logger.Info("video_rate_limit_retry", "job_id", job.ID, "account_id", lease.Credential.ID, "old_node_id", submissionLimit.NodeID, "new_node_id", nextNode, "cooldown_until", submissionLimit.CooldownUntil)
+					} else {
+						provider.ReportVideoStep(ctx, "video_retry_egress_unavailable")
+						s.logger.Warn("video_rate_limit_no_alternative", "job_id", job.ID, "node_id", submissionLimit.NodeID, "error", selectErr)
+					}
+				} else {
+					provider.ReportVideoStep(ctx, "video_retry_egress_unavailable")
+				}
+			} else if len(rateLimitedVideoNodes) >= maxVideoRateLimitedNodes {
+				provider.ReportVideoStep(ctx, "video_rate_limit_retry_limit")
+			}
+		} else if errors.Is(err, infraegress.ErrVideoRetryEgressUnavailable) || errors.Is(err, infraegress.ErrNodeRateLimited) {
+			failureHandled = true
+			status, hasStatus = http.StatusTooManyRequests, true
+		} else if errors.Is(err, provider.ErrUnauthorized) {
 			if lease.Credential.AuthType == account.AuthTypeSSO {
 				s.markSSOCredentialRejected(failureCtx, lease.Credential, fmt.Sprintf("%s SSO credential rejected", lease.Credential.Provider))
 			}

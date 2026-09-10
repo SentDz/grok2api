@@ -105,6 +105,14 @@ func (l *Lease) doRequest(request *http.Request, invalidateForbidden bool) (*htt
 	if l == nil || l.client == nil {
 		return nil, errors.New("出口客户端未初始化")
 	}
+	if l.clearanceManager != nil && l.NodeID != 0 {
+		if err := l.clearanceManager.checkNodeRateLimit(request.Context(), domain.Node{ID: l.NodeID, Scope: l.Scope}); err != nil {
+			if request.Body != nil {
+				_ = request.Body.Close()
+			}
+			return nil, err
+		}
+	}
 	// Rotating proxy endpoints choose an exit when a new CONNECT tunnel is
 	// established. Reusing a Build keep-alive/HTTP2 connection would pin many
 	// otherwise independent requests to one exit and defeat proxy-pool
@@ -459,6 +467,9 @@ func (m *Manager) AcquireBuildEnvironmentDirectIfIsolated(ctx context.Context, a
 // AcquireCredential binds the outbound proxy identity to one persisted
 // Provider credential. Resin templates use this identity as their Account.
 func (m *Manager) AcquireCredential(ctx context.Context, scope domain.Scope, credential accountdomain.Credential) (*Lease, error) {
+	if nodeID, ok := ctx.Value(videoRetryNodeKey{}).(uint64); ok && nodeID != 0 && (scope == domain.ScopeWeb || scope == domain.ScopeWebSubmit || scope == domain.ScopeWebAsset) {
+		credential.EgressNodeID = nodeID
+	}
 	identity := strings.TrimSpace(credential.EgressIdentity)
 	if identity == "" {
 		identity = string(credential.Provider) + "_" + strconv.FormatUint(credential.ID, 10)
@@ -478,6 +489,15 @@ func (m *Manager) AcquireCredential(ctx context.Context, scope domain.Scope, cre
 	ctx = WithAccountIdentity(ctx, identity)
 	ctx = WithEgressNode(ctx, credential.EgressNodeID)
 	lease, _, err := m.acquire(ctx, scope, strconv.FormatUint(credential.ID, 10), true, credential.EncryptedCloudflareCookie, credential.EgressNodeID)
+	if forced, ok := ctx.Value(videoRetryNodeKey{}).(uint64); ok && forced != 0 && scope == domain.ScopeWebSubmit {
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrVideoRetryEgressUnavailable, err)
+		}
+		if lease.NodeID != forced || lease.ProxyURL == "" {
+			lease.Release()
+			return nil, ErrVideoRetryEgressUnavailable
+		}
+	}
 	return lease, err
 }
 
@@ -843,6 +863,12 @@ func (m *Manager) acquire(ctx context.Context, scope domain.Scope, affinity stri
 			if !selected.Enabled && !qualityProbe {
 				return m.acquireUnavailableFallback(ctx, scope, affinity, allowDirect, encryptedCredentialCookies, managedClearance, fmt.Errorf("绑定出口节点 %d 已禁用", boundNodeID))
 			}
+			if selected.RateLimited(now) {
+				if _, retrying := ctx.Value(videoRetryNodeKey{}).(uint64); retrying {
+					return nil, true, ErrVideoRetryEgressUnavailable
+				}
+				return m.acquireUnavailableFallback(ctx, scope, affinity, allowDirect, encryptedCredentialCookies, managedClearance, ErrNodeRateLimited)
+			}
 			if strings.TrimSpace(selected.EncryptedProxyURL) == "" {
 				return m.acquireUnavailableFallback(ctx, scope, affinity, allowDirect, encryptedCredentialCookies, managedClearance, fmt.Errorf("绑定出口节点 %d 未配置代理地址", boundNodeID))
 			}
@@ -906,6 +932,9 @@ func (m *Manager) acquire(ctx context.Context, scope domain.Scope, affinity stri
 				continue
 			}
 			configured = true
+			if node.RateLimited(now) {
+				continue
+			}
 			proxyPool := m.isProxyPoolNode(node)
 			if node.CooldownUntil == nil || !now.Before(*node.CooldownUntil) || proxyPool {
 				if proxyPool {
@@ -1063,6 +1092,9 @@ func (m *Manager) fixedFallbackNode(ctx context.Context, scope domain.Scope, nod
 	if !selected.Enabled {
 		return domain.Node{}, fmt.Errorf("固定回退节点 %d 已禁用", nodeID)
 	}
+	if selected.RateLimited(time.Now().UTC()) {
+		return domain.Node{}, ErrNodeRateLimited
+	}
 	if selected.ProxyPool {
 		return domain.Node{}, fmt.Errorf("固定回退节点 %d 使用代理池模式", nodeID)
 	}
@@ -1103,6 +1135,9 @@ func (m *Manager) leaseForNode(ctx context.Context, scope domain.Scope, affinity
 }
 
 func (m *Manager) leaseForNodeWithOptions(ctx context.Context, scope domain.Scope, affinity, encryptedCredentialCookies string, managedClearance bool, selected domain.Node, options clientOptions) (*Lease, bool, error) {
+	if err := m.checkNodeRateLimit(ctx, selected); err != nil {
+		return nil, true, err
+	}
 	credentialCookies := ""
 	if !managedClearance && usesBrowserClearance(scope) && strings.TrimSpace(encryptedCredentialCookies) != "" {
 		decryptedCookies, decryptErr := m.cipher.Decrypt(encryptedCredentialCookies)

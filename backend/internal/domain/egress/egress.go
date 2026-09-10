@@ -12,6 +12,8 @@ const (
 
 const LastErrorTransport = "transport error"
 
+const VideoRateLimitCooldown = 3 * time.Minute
+
 type Scope string
 
 const (
@@ -43,6 +45,7 @@ type Node struct {
 	Health                      float64
 	FailureCount                int
 	CooldownUntil               *time.Time
+	RateLimitUntil              *time.Time
 	LastError                   string
 	ProbeStatus                 ProbeStatus
 	LastProbedAt                *time.Time
@@ -55,6 +58,10 @@ type Node struct {
 	AssignedAccountCount        int
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
+}
+
+func (n Node) RateLimited(now time.Time) bool {
+	return n.RateLimitUntil != nil && now.Before(*n.RateLimitUntil)
 }
 
 type PublicNode struct {
@@ -250,6 +257,19 @@ type OperationsConfig struct {
 	AssignmentIntervalSeconds int
 	Fallbacks                 map[Scope]FallbackConfig
 	UpdatedAt                 time.Time
+}
+
+// Zero disables periodic probes. Saturate at Go's duration limit so very long
+// intervals never overflow into negative durations or immediate probing.
+func (value OperationsConfig) ProbeInterval() time.Duration {
+	if value.ProbeIntervalSeconds <= 0 {
+		return 0
+	}
+	const maxDuration = time.Duration(1<<63 - 1)
+	if int64(value.ProbeIntervalSeconds) > int64(maxDuration/time.Second) {
+		return maxDuration
+	}
+	return time.Duration(value.ProbeIntervalSeconds) * time.Second
 }
 
 func DefaultOperationsConfig() OperationsConfig {

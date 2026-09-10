@@ -565,6 +565,7 @@ type egressNodeModel struct {
 	Health                      float64 `gorm:"not null;default:1;check:chk_egress_nodes_health,health >= 0 AND health <= 1"`
 	FailureCount                int     `gorm:"not null;default:0;check:chk_egress_nodes_failures,failure_count >= 0"`
 	CooldownUntil               *time.Time
+	RateLimitUntil              *time.Time
 	LastError                   string `gorm:"size:512;check:chk_egress_nodes_last_error,length(last_error) <= 512"`
 	ProbeStatus                 string `gorm:"size:16;not null;default:unknown;check:chk_egress_nodes_probe_status,probe_status IN ('unknown','healthy','unhealthy')"`
 	LastProbedAt                *time.Time
@@ -593,7 +594,7 @@ func (egressNodeModel) TableName() string { return "egress_nodes" }
 type egressOperationsConfigModel struct {
 	ID                                  uint64    `gorm:"primaryKey;check:chk_egress_operations_config_id,id = 1"`
 	ProbeProvider                       string    `gorm:"size:16;not null;default:cloudflare;check:chk_egress_operations_config_probe_provider,probe_provider IN ('ipinfo','cloudflare')"`
-	ProbeIntervalSeconds                int       `gorm:"not null;default:900;check:chk_egress_operations_config_probe_interval,probe_interval_seconds BETWEEN 60 AND 86400"`
+	ProbeIntervalSeconds                int       `gorm:"not null;default:900;check:chk_egress_operations_config_probe_interval,probe_interval_seconds = 0 OR probe_interval_seconds >= 60"`
 	AutoAssignEnabled                   bool      `gorm:"not null;default:false"`
 	AutoBalanceEnabled                  bool      `gorm:"not null;default:false"`
 	AssignmentIntervalSeconds           int       `gorm:"not null;default:300;check:chk_egress_operations_config_assignment_interval,assignment_interval_seconds BETWEEN 60 AND 86400"`

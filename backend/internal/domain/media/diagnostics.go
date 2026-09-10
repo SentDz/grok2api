@@ -25,6 +25,7 @@ type VideoEvent struct {
 	EgressScope    string     `json:"egressScope,omitempty"`
 	EgressMode     string     `json:"egressMode,omitempty"`
 	DeadlineAt     *time.Time `json:"deadlineAt,omitempty"`
+	CooldownUntil  *time.Time `json:"cooldownUntil,omitempty"`
 }
 
 func (d *VideoDiagnostics) Current() *VideoEvent {

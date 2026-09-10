@@ -389,8 +389,11 @@ func (s *Service) UpdateOperationsConfig(ctx context.Context, input OperationsCo
 	if err != nil {
 		return domain.OperationsConfig{}, err
 	}
-	if input.ProbeIntervalSeconds < 60 || input.ProbeIntervalSeconds > 86400 || input.AssignmentIntervalSeconds < 60 || input.AssignmentIntervalSeconds > 86400 {
-		return domain.OperationsConfig{}, fmt.Errorf("%w: 自动任务间隔必须在 60 到 86400 秒之间", ErrInvalidInput)
+	if input.ProbeIntervalSeconds != 0 && input.ProbeIntervalSeconds < 60 {
+		return domain.OperationsConfig{}, fmt.Errorf("%w: 节点检测间隔必须为 0（关闭）或至少 60 秒", ErrInvalidInput)
+	}
+	if input.AssignmentIntervalSeconds < 60 || input.AssignmentIntervalSeconds > 86400 {
+		return domain.OperationsConfig{}, fmt.Errorf("%w: 账号分配间隔必须在 60 到 86400 秒之间", ErrInvalidInput)
 	}
 	current, err := operations.GetEgressOperationsConfig(ctx)
 	if err != nil {
@@ -472,7 +475,7 @@ func (s *Service) validateFixedFallbackNode(scope domain.Scope, node domain.Node
 	if node.ProxyPool {
 		return fmt.Errorf("%w: 固定回退节点不能使用代理池模式", ErrInvalidInput)
 	}
-	if rejectCooldown && node.CooldownUntil != nil && time.Now().UTC().Before(*node.CooldownUntil) {
+	if rejectCooldown && (node.RateLimited(time.Now().UTC()) || (node.CooldownUntil != nil && time.Now().UTC().Before(*node.CooldownUntil))) {
 		return fmt.Errorf("%w: 固定回退节点正在冷却", ErrInvalidInput)
 	}
 	proxyURL, err := s.cipher.Decrypt(node.EncryptedProxyURL)

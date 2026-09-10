@@ -16,6 +16,7 @@ import (
 	tlsclient "github.com/bogdanfinn/tls-client"
 	"github.com/bogdanfinn/tls-client/profiles"
 	"github.com/bogdanfinn/websocket"
+	domain "github.com/chenyme/grok2api/backend/internal/domain/egress"
 	"github.com/chenyme/grok2api/backend/internal/pkg/tunnelproxy"
 )
 
@@ -36,6 +37,11 @@ func (l *Lease) DialWebSocketDeferredForbidden(ctx context.Context, endpoint str
 func (l *Lease) dialWebSocket(ctx context.Context, endpoint string, headers fhttp.Header, handshakeTimeout time.Duration, invalidateForbidden bool) (*websocket.Conn, *fhttp.Response, error) {
 	if l == nil || l.browser == nil {
 		return nil, nil, errors.New("当前出口客户端不支持浏览器 WebSocket")
+	}
+	if l.clearanceManager != nil && l.NodeID != 0 {
+		if err := l.clearanceManager.checkNodeRateLimit(ctx, domain.Node{ID: l.NodeID, Scope: l.Scope}); err != nil {
+			return nil, nil, err
+		}
 	}
 	for attempt := 0; ; attempt++ {
 		dialer := &websocket.Dialer{

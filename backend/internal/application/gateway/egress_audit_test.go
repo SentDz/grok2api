@@ -18,6 +18,10 @@ type submissionAuditRepository struct {
 	node egressdomain.Node
 }
 
+func (r submissionAuditRepository) GetEgressNode(context.Context, uint64) (egressdomain.Node, error) {
+	return r.node, nil
+}
+
 func (r submissionAuditRepository) ListEgressNodes(_ context.Context, scope egressdomain.Scope, _ repository.SortQuery) ([]egressdomain.Node, error) {
 	if scope == r.node.Scope {
 		return []egressdomain.Node{r.node}, nil

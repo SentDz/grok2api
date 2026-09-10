@@ -1261,6 +1261,12 @@ func (s *Service) publicNode(value domain.Node) domain.PublicNode {
 	if proxyPool {
 		health, failureCount, cooldownUntil, lastError = 1, 0, nil, ""
 	}
+	if value.RateLimited(time.Now().UTC()) {
+		if cooldownUntil == nil || cooldownUntil.Before(*value.RateLimitUntil) {
+			cooldownUntil = value.RateLimitUntil
+		}
+		lastError = "Web video submission HTTP 429; node cooling for 3 minutes"
+	}
 	return domain.PublicNode{
 		ID: value.ID, Name: value.Name, Scope: value.Scope, Enabled: value.Enabled,
 		ProxyConfigured: value.EncryptedProxyURL != "", ProxyDisplay: proxyDisplay, ProxyFingerprint: proxyFingerprint,

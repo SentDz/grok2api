@@ -326,7 +326,7 @@ func (a *Adapter) generateLegacyVideo(ctx context.Context, request provider.Vide
 	defer submitLease.Release()
 	ctx = withVideoRequest(ctx, "video_submit", submitLease)
 	reportVideoRequest(ctx, "submit_egress_ready", 0, nil)
-	response, err := a.postJSON(ctx, cfg, submitLease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second)
+	response, err := a.postVideoSubmission(ctx, cfg, submitLease, token, payload, cfg.BaseURL+"/imagine")
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 	}
@@ -424,7 +424,7 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 	defer submitLease.Release()
 	ctx = withVideoRequest(ctx, "video_submit", submitLease)
 	reportVideoRequest(ctx, "submit_egress_ready", 0, nil)
-	response, err := a.postJSONWithReferer(ctx, cfg, submitLease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second, referer)
+	response, err := a.postVideoSubmission(ctx, cfg, submitLease, token, payload, referer)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 	}
@@ -469,14 +469,12 @@ func (a *Adapter) extendVideoV15(ctx context.Context, cfg Config, lease *egress.
 	defer submitLease.Release()
 	ctx = withVideoRequest(ctx, "video_submit", submitLease)
 	reportVideoRequest(ctx, "submit_egress_ready", 0, nil)
-	response, err := a.postJSONWithReferer(
+	response, err := a.postVideoSubmission(
 		ctx,
 		cfg,
 		submitLease,
 		token,
-		cfg.BaseURL+"/rest/app-chat/conversations/new",
 		payload,
-		time.Duration(cfg.VideoTimeoutSeconds)*time.Second,
 		cfg.BaseURL+"/imagine/post/"+postID,
 	)
 	if err != nil {

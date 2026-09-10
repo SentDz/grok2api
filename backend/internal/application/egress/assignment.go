@@ -292,8 +292,15 @@ func validAutoAssignShare(value float64) bool {
 func (s *Service) eligibleNodesForProvider(values []domain.Node, provider accountdomain.Provider, probeInterval time.Duration, now time.Time) []domain.Node {
 	values = append([]domain.Node(nil), values...)
 	result := make([]domain.Node, 0, len(values))
-	maxAge := max(probeInterval*2, time.Minute)
+	const maxDuration = time.Duration(1<<63 - 1)
+	maxAge := maxDuration
+	if probeInterval <= maxDuration/2 {
+		maxAge = max(probeInterval*2, time.Minute)
+	}
 	for _, value := range values {
+		if value.RateLimited(now) {
+			continue
+		}
 		if !value.Enabled || value.EncryptedProxyURL == "" || !scopeSupportsProvider(value.Scope, provider) || value.ProbeStatus != domain.ProbeStatusHealthy || value.LastProbedAt == nil || now.Sub(value.LastProbedAt.UTC()) > maxAge {
 			continue
 		}
@@ -428,16 +435,18 @@ func (s *Service) RunMaintenance(ctx context.Context) error {
 			}
 		}
 	}
-	nodes, err := operations.ListDueEgressNodes(ctx, time.Now().UTC(), time.Duration(config.ProbeIntervalSeconds)*time.Second, 32)
-	if err != nil {
-		resultErr = errors.Join(resultErr, err)
-	} else if len(nodes) > 0 {
-		ids := make([]uint64, 0, len(nodes))
-		for _, node := range nodes {
-			ids = append(ids, node.ID)
-		}
-		if _, probeErr := s.TestNodes(ctx, ids); probeErr != nil {
-			resultErr = errors.Join(resultErr, probeErr)
+	if config.ProbeIntervalSeconds > 0 {
+		nodes, err := operations.ListDueEgressNodes(ctx, time.Now().UTC(), config.ProbeInterval(), 32)
+		if err != nil {
+			resultErr = errors.Join(resultErr, err)
+		} else if len(nodes) > 0 {
+			ids := make([]uint64, 0, len(nodes))
+			for _, node := range nodes {
+				ids = append(ids, node.ID)
+			}
+			if _, probeErr := s.TestNodes(ctx, ids); probeErr != nil {
+				resultErr = errors.Join(resultErr, probeErr)
+			}
 		}
 	}
 	if config.AutoAssignEnabled || config.AutoBalanceEnabled {
@@ -448,7 +457,7 @@ func (s *Service) RunMaintenance(ctx context.Context) error {
 		}
 		s.mu.Unlock()
 		if due {
-			_, balanceErr := s.RebalanceAccounts(ctx, config.AutoAssignEnabled, config.AutoBalanceEnabled, time.Duration(config.ProbeIntervalSeconds)*time.Second)
+			_, balanceErr := s.RebalanceAccounts(ctx, config.AutoAssignEnabled, config.AutoBalanceEnabled, config.ProbeInterval())
 			s.mu.Lock()
 			s.assignmentRunning = false
 			if balanceErr == nil {

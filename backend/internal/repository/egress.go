@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/chenyme/grok2api/backend/internal/domain/egress"
 )
@@ -12,6 +13,12 @@ type EgressRepository interface {
 	CreateEgressNode(ctx context.Context, value egress.Node) (egress.Node, error)
 	UpdateEgressNode(ctx context.Context, value egress.Node) (egress.Node, error)
 	DeleteEgressNode(ctx context.Context, id uint64) error
+}
+
+// Rate-limit holds are independent of probe and transport-health updates.
+type EgressRateLimitRepository interface {
+	RateLimitEgressNode(context.Context, uint64, time.Time) error
+	GetEgressNodeRateLimit(context.Context, uint64) (*time.Time, error)
 }
 
 // EgressNodePageRepository is the bounded management-list contract. Runtime

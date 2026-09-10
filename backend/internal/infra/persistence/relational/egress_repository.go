@@ -158,14 +158,14 @@ func (r *EgressRepository) UpdateEgressNode(ctx context.Context, value egress.No
 		}
 		// Select("*").Updates keeps zero values while avoiding Save's fallback
 		// INSERT, which could resurrect a node deleted after the service read it.
-		result := tx.Model(&egressNodeModel{}).Where("id = ?", row.ID).Select("*").Updates(&row)
+		result := tx.Model(&egressNodeModel{}).Where("id = ?", row.ID).Select("*").Omit("rate_limit_until").Updates(&row)
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
 			return repository.ErrNotFound
 		}
-		return nil
+		return tx.Select("rate_limit_until").First(&row, row.ID).Error
 	})
 	if err != nil {
 		return egress.Node{}, mapError(err)
@@ -311,7 +311,7 @@ func (r *EgressRepository) ListDueEgressNodes(ctx context.Context, now time.Time
 		return []egress.Node{}, nil
 	}
 	if interval <= 0 {
-		interval = 15 * time.Minute
+		return []egress.Node{}, nil
 	}
 	var rows []egressNodeModel
 	if err := r.db.db.WithContext(ctx).
@@ -513,6 +513,9 @@ func (r *EgressRepository) GetEgressOperationsConfig(ctx context.Context) (egres
 func (r *EgressRepository) SaveEgressOperationsConfig(ctx context.Context, value egress.OperationsConfig) (egress.OperationsConfig, error) {
 	row := fromEgressOperationsConfigDomain(value)
 	row.ID = 1
+	if row.AssignmentIntervalSeconds == 0 {
+		row.AssignmentIntervalSeconds = egress.DefaultOperationsConfig().AssignmentIntervalSeconds
+	}
 	err := r.db.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		locked, err := lockEgressOperationsConfig(tx)
 		if err != nil {
@@ -526,7 +529,9 @@ func (r *EgressRepository) SaveEgressOperationsConfig(ctx context.Context, value
 		if err := validateLockedEgressFallbackNodes(tx, row); err != nil {
 			return err
 		}
-		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error
+		// The locked row already exists. Updates preserves an explicit zero
+		// probe interval instead of GORM replacing it with the INSERT default.
+		return tx.Model(&egressOperationsConfigModel{}).Where("id = ?", 1).Select("*").Updates(&row).Error
 	})
 	if err != nil {
 		return egress.OperationsConfig{}, mapError(err)
@@ -846,7 +851,8 @@ func toEgressDomain(row egressNodeModel) egress.Node {
 		ClearanceRefreshedAt: row.ClearanceRefreshedAt, ClearanceFingerprint: row.ClearanceFingerprint,
 		ClearanceBindingFingerprint: row.ClearanceBindingFingerprint,
 		Health:                      row.Health, FailureCount: row.FailureCount, CooldownUntil: row.CooldownUntil, LastError: row.LastError,
-		ProbeStatus: egress.ProbeStatus(row.ProbeStatus), LastProbedAt: row.LastProbedAt, ProbeLatencyMS: row.ProbeLatencyMS, ExitIP: row.ExitIP, ProbeError: row.ProbeError,
+		RateLimitUntil: row.RateLimitUntil,
+		ProbeStatus:    egress.ProbeStatus(row.ProbeStatus), LastProbedAt: row.LastProbedAt, ProbeLatencyMS: row.ProbeLatencyMS, ExitIP: row.ExitIP, ProbeError: row.ProbeError,
 		ProbeProvider: storedProbeProvider(egress.ProbeProvider(row.ProbeProvider)),
 		IPv4Probe:     probeFamilyFromRow(row.IPv4ProbeStatus, row.IPv4LastProbedAt, row.IPv4ProbeLatencyMS, row.IPv4ExitIP, row.IPv4ProbeError),
 		IPv6Probe:     probeFamilyFromRow(row.IPv6ProbeStatus, row.IPv6LastProbedAt, row.IPv6ProbeLatencyMS, row.IPv6ExitIP, row.IPv6ProbeError),
@@ -871,7 +877,8 @@ func fromEgressDomain(value egress.Node) egressNodeModel {
 		ClearanceRefreshedAt: value.ClearanceRefreshedAt, ClearanceFingerprint: value.ClearanceFingerprint,
 		ClearanceBindingFingerprint: value.ClearanceBindingFingerprint,
 		Health:                      health, FailureCount: value.FailureCount, CooldownUntil: value.CooldownUntil, LastError: value.LastError,
-		ProbeStatus: string(probeStatus), LastProbedAt: value.LastProbedAt, ProbeLatencyMS: value.ProbeLatencyMS, ExitIP: value.ExitIP, ProbeError: value.ProbeError,
+		RateLimitUntil: value.RateLimitUntil,
+		ProbeStatus:    string(probeStatus), LastProbedAt: value.LastProbedAt, ProbeLatencyMS: value.ProbeLatencyMS, ExitIP: value.ExitIP, ProbeError: value.ProbeError,
 		ProbeProvider:   string(storedProbeProvider(value.ProbeProvider)),
 		IPv4ProbeStatus: string(normalizedProbeStatus(value.IPv4Probe.Status)), IPv4LastProbedAt: probeTestedAt(value.IPv4Probe), IPv4ProbeLatencyMS: value.IPv4Probe.LatencyMS, IPv4ExitIP: value.IPv4Probe.ExitIP, IPv4ProbeError: value.IPv4Probe.Error,
 		IPv6ProbeStatus: string(normalizedProbeStatus(value.IPv6Probe.Status)), IPv6LastProbedAt: probeTestedAt(value.IPv6Probe), IPv6ProbeLatencyMS: value.IPv6Probe.LatencyMS, IPv6ExitIP: value.IPv6Probe.ExitIP, IPv6ProbeError: value.IPv6Probe.Error,
