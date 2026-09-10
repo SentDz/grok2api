@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from .algorithm import valid_statsig_id
 from .runtime import sign_with_meta_hot
 from .store import Store
+from .deployment import material, sign_published, state_dir
 
 
 class SignerHandler(BaseHTTPRequestHandler):
@@ -21,23 +22,33 @@ class SignerHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path in ("/health", "/", "/fingerprint"):
+            snapshot = material()
             pair = None
             try:
                 pair = self.store.pair
             except FileNotFoundError:
                 pass
+            if snapshot:
+                from .store import Pair
+
+                pair = Pair.from_dict(snapshot["pair"])
             body = {
                 "ok": True,
-                "formula": self.store.formula.to_dict(),
+                "formula": snapshot["formula"] if snapshot else self.store.formula.to_dict(),
                 "path_count": len(pair.paths) if pair else 0,
                 "hex_len": len(pair.hex) if pair else 0,
                 "curves_hash": pair.curves_hash if pair else "",
                 "updated_at": pair.updated_at if pair else "",
+                "verified": snapshot.get("verified", False) if snapshot else None,
+                "published_at": snapshot.get("published_at") if snapshot else None,
             }
             if path == "/fingerprint":
                 from .watch import load_previous
 
-                body["frontend"] = load_previous(self.store)
+                directory = state_dir()
+                body["frontend"] = load_previous(Store(directory / "watch") if directory else self.store)
+                if directory and (directory / "watch_status.json").exists():
+                    body["watch"] = json.loads((directory / "watch_status.json").read_text(encoding="utf-8"))
             self._json(200, body)
             return
         self._json(404, {"error": "not found"})
@@ -60,15 +71,12 @@ class SignerHandler(BaseHTTPRequestHandler):
             if not method or not target or not meta:
                 self._json(400, {"error": "method、path、environment.metaContent 必填"})
                 return
-            pair = self.store.pair
-            value = sign_with_meta_hot(
-                method,
-                target,
-                meta,
-                _now_unix(),
-                pair.paths,
-                self.store.formula,
-            )
+            snapshot = material()
+            if snapshot:
+                value = sign_published(snapshot, method, target, meta, _now_unix())
+            else:
+                pair = self.store.pair
+                value = sign_with_meta_hot(method, target, meta, _now_unix(), pair.paths, self.store.formula)
             if not valid_statsig_id(value):
                 self._json(500, {"error": "签名结果无效"})
                 return

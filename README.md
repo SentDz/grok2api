@@ -225,8 +225,19 @@ then must match browser samples and pass upstream validation before activation.
 Signature versions and update history are persisted, with verification, refresh and rollback
 controls in the admin UI. Capture failures preserve the previous material and expose diagnostics.
 Chromium runs as the non-root app user; its own sandbox is disabled by default in Docker, with
-capture egress limited to Grok, x.ai and Cloudflare domains. The old standalone signer remains
-available via `docker compose --profile external-signer up -d` for URL mode.
+capture egress limited to Grok, x.ai and Cloudflare domains.
+
+For the standalone signer with continuous monitoring and external LLM repair, configure the
+API URL, key, model and capture SSO in `.env` using `.env.example`, then rebuild and deploy together:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.statsig.yml --profile external-signer up -d --build --wait
+```
+
+Select URL mode with `http://statsig-signer:8788/sign` in runtime settings. The watcher checks
+HTML every 60 seconds, periodically verifies browser captures, and retries failed repairs.
+Verified material persists across rebuilds and is published atomically for immediate signing.
+See [standalone signer configuration](tools/statsig-signer/README.md).
 
 ### Run from source
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 
@@ -42,14 +43,22 @@ def main(argv: list[str] | None = None) -> int:
     upd.add_argument("--fixture", default="", help="用已有 pair.json，不打开浏览器")
 
     watch_cmd = sub.add_parser("watch", help="监测 grok 前端 curves/chunk/sentry 是否发版")
-    watch_cmd.add_argument("--interval", type=int, default=60)
+    watch_cmd.add_argument("--interval", type=int, default=int(os.environ.get("STATSIG_WATCH_INTERVAL", "60")))
     watch_cmd.add_argument("--once", action="store_true")
     watch_cmd.add_argument("--deep", action="store_true", help="这一轮用浏览器抓包对照官方 HEX")
     watch_cmd.add_argument("--repair", action="store_true", help="发现变化时自动抓包修复热代码")
     watch_cmd.add_argument("--browser", choices=("local", "x2api"), default="local")
-    watch_cmd.add_argument("--deep-every", type=int, default=0, help="每 N 轮浏览器深探 HEX，0 表示只靠 HTML 指纹（sentry/curves/chunks）")
+    watch_cmd.add_argument("--deep-every", type=int, default=int(os.environ.get("STATSIG_DEEP_EVERY", "0")), help="每 N 轮浏览器深探 HEX，0 表示只靠 HTML 指纹（sentry/curves/chunks）")
+    sub.add_parser("watch-health", help="检查常驻监测进程的心跳")
 
     args = parser.parse_args(argv)
+    if args.command == "watch-health":
+        from .watch import watch_health
+
+        return 0 if watch_health() else 1
+    from .deployment import initialize_state
+
+    initialize_state()
     store = Store()
     if args.command == "serve":
         host, port = _listen(args.listen)
@@ -61,7 +70,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         return 0
     if args.command == "sign":
-        value = sign_with_meta_hot(args.method, args.path, args.meta, int(time.time()), store.pair.paths, store.formula)
+        from .deployment import material, sign_published
+
+        snapshot = material()
+        if snapshot:
+            value = sign_published(snapshot, args.method, args.path, args.meta, int(time.time()))
+        else:
+            value = sign_with_meta_hot(args.method, args.path, args.meta, int(time.time()), store.pair.paths, store.formula)
         print(json.dumps({"x-statsig-id": value}, ensure_ascii=False))
         return 0
     if args.command == "capture":
@@ -96,8 +111,11 @@ def main(argv: list[str] | None = None) -> int:
             from .agent import fixture_from_pair_file
 
             fixture = fixture_from_pair_file(Path(args.fixture))
-        result = update(
-            store=store,
+        from .deployment import repair_published, state_dir
+
+        updater = repair_published if state_dir() else update
+        result = updater(
+            **({} if state_dir() else {"store": store}),
             browser=args.browser,
             use_hermes=not args.no_hermes,
             force_hermes=args.force_hermes,

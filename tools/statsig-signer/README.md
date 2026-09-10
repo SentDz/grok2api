@@ -1,6 +1,6 @@
 # Statsig signer
 
-独立 Python 签名器，协议对齐 `https://grok.wodf.de/sign`。HEX 算法是 `hot/hex.js`，常驻 Node `vm.eval`（源码变了才重新编译）。grok2api 把 `StatsigSignerURL` 指到 `http://127.0.0.1:8788/sign`。不改 Go，不把 SSO 传给签名器。
+独立 Python 签名器，协议对齐 `https://grok.wodf.de/sign`。HEX 算法是 `hot/hex.js`，常驻 Node `vm.eval`（源码变了才重新编译）。grok2api 把 `StatsigSignerURL` 指到签名服务地址。签名 HTTP 接口不接收 SSO；常驻采集进程使用单独配置的 SSO。
 
 ## 协议
 
@@ -27,25 +27,32 @@ grok2api 允许的内网地址：`http://127.0.0.1:8788/sign`。
 
 ### Docker Compose
 
-主系统已有内置签名模式，本目录作为独立部署兼容工具保留。
-仓库根目录的 Compose 使用 `external-signer` profile 启动 `statsig-signer` 服务。镜像包含 Python 和 Node，
-以非 root 用户运行，只监听容器内网端口，不向宿主机发布 8788 端口。
-该服务仅供 URL 模式使用，内置模式不依赖它。
+`external-signer` profile 同时启动 `statsig-signer` 签名服务和 `statsig-watch` 常驻监测修复进程。
+两者共用包含 Python、Node、Playwright 和 Chromium 的镜像，以非 root 用户运行。
+签名端口仅在 Docker 网络内开放，不向宿主机发布 8788 端口。
 
-如果主项目已部署，在仓库根目录只构建并更新独立签名器：
+首次部署将仓库根目录 `.env.example` 作为 `.env`，填写以下配置；`.env` 已被 Git 忽略：
+
+| 配置 | 用途 |
+| --- | --- |
+| `STATSIG_LLM_BASE` | 外部兼容 API 基础地址，含 `/v1`，不含 `/chat/completions` |
+| `STATSIG_LLM_API_KEY` | 该 API 的密钥 |
+| `STATSIG_LLM_MODEL` | 支持工具调用的模型名称 |
+| `STATSIG_GROK_SSO` | 用于浏览器采集的 Grok SSO Cookie 值，不含 `sso=` |
+| `STATSIG_PROXY_SERVER` | 可选采集代理，例如 `http://proxy:8080` |
+| `STATSIG_PROXY_USERNAME` / `STATSIG_PROXY_PASSWORD` | 可选代理认证 |
+
+LLM 凭据只注入监测容器，不会注入签名服务。缺少必填配置时监测容器报错退出。
+主项目管理页面中的内置签名模型配置不会传给独立签名器。
+
+在仓库根目录一行重新构建并部署主项目、签名器和常驻监测（Docker Compose v2）：
 
 ```bash
-docker compose --profile external-signer up -d --build --no-deps --wait statsig-signer
+docker compose -f docker-compose.yml -f docker-compose.statsig.yml --profile external-signer up -d --build --wait
 ```
 
-命令等待签名器健康检查通过后退出，不重建或重启主项目。主项目在同一 Compose 网络内时，
-继续使用 `http://statsig-signer:8788/sign`；独立 Compose 项目的主程序需要接入同一 Docker 网络。
-
-在仓库根目录显式启用兼容签名服务（使用支持 `pull_policy: build` 的 Docker Compose v2）：
-
-```bash
-docker build -t grok2api:local . && GROK2API_IMAGE=grok2api:local docker compose --profile external-signer up -d
-```
+主项目与签名器均从当前代码构建。监测进程使用同一份新签名器镜像启动。
+命令等待主项目、签名器及监测心跳健康；首次真实抓包或修复可能仍在进行，需查看 `/fingerprint` 或监测日志。
 
 首次部署后，在管理端运行设置中将 Statsig 模式设为 `url`，签名服务地址设为
 `http://statsig-signer:8788/sign` 并保存。不要填写 `127.0.0.1`，那是主程序容器自身。
@@ -54,14 +61,22 @@ docker build -t grok2api:local . && GROK2API_IMAGE=grok2api:local docker compose
 
 ```bash
 docker compose ps
-docker compose logs --tail=50 statsig-signer
-docker compose exec statsig-signer python3 -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8788/health").read().decode())'
+docker compose logs --tail=50 statsig-signer statsig-watch
+docker compose exec statsig-signer python3 -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8788/fingerprint").read().decode())'
 ```
 
-`pull_policy: build` 使每次 `docker compose up -d` 都按当前代码构建签名器，未变更的层使用缓存。
-签名代码和 `data/pair.json`、`data/formula.json` 随镜像发布，不使用持久卷保留旧版本。
-`serve` 不会自动抓取网页更新算法；网页算法变化时，先更新仓库中的代码和数据，再执行部署命令。
-健康检查验证服务和数据可用，实际能否被 Grok 接受仍需通过一次真实请求确认。
+默认每 60 秒检查 HTML 发版指纹，首次启动和每 30 轮做浏览器 HEX 对照。
+可通过 `STATSIG_WATCH_INTERVAL`、`STATSIG_DEEP_EVERY` 调整；后者设为 0 关闭周期性浏览器深探。
+首次启动也会校验镜像附带的材料，变化时触发修复。失败默认等待 300 秒重试，可用
+`STATSIG_REPAIR_RETRY_SECONDS` 调整；新发版不受旧失败的退避限制。
+
+`statsig_state` 数据卷保存已发布的签名材料、发版指纹和监测状态，容器重建不会覆盖已经修复的材料。
+候选算法在临时目录中修复和验证，通过后将代码、公式、curves 一起原子发布到 `active.json`。
+签名服务每次请求读取一个完整版本，立即使用新材料；修复失败继续使用上次版本。
+上次版本如果已被 Grok 淘汰，仍可能无法签名，需检查修复失败原因。
+
+`GET /fingerprint` 返回 `verified`、`published_at`、`frontend` 和 `watch.last_result`。
+健康检查表示服务及监测进程存活，不等于 Grok 已接受签名；需通过一次真实主项目请求确认。
 
 ### 本机运行
 
@@ -95,8 +110,8 @@ python3 -m statsig_signer update --browser local
 
 1. 抓同一页 seed / 官方 HEX / curves
 2. 当前公式能对上官方 HEX → 只写 `pair.json`
-3. 穷举下标能对上 → 写 `formula.json` + `pair.json`
-4. 对不上 → **Hermes 最小内核**（grok2api `/v1/chat/completions` 工具循环）读 chunk、试公式，只有 HEX 匹配才 apply
+3. 真实网页的公式变化时进入 **Hermes 最小内核**（兼容 `/v1/chat/completions` 工具循环），多次采集确定唯一的公式下标
+4. 候选代码必须通过额外新页面的 HEX 验证；Docker 监测进程在完整验证成功后才发布材料
 
 ```bash
 export GROK2API_BASE=http://127.0.0.1:18000/v1

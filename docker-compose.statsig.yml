@@ -1,0 +1,8 @@
+services:
+  grok2api:
+    image: "${GROK2API_IMAGE:-grok2api:local}"
+    build:
+      context: .
+    depends_on:
+      statsig-signer:
+        condition: service_healthy

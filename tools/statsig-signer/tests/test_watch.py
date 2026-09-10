@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import unittest
 
 from statsig_signer.watch import compare_fingerprints, fingerprint_from_html, should_backoff_repair
@@ -56,4 +57,5 @@ class WatchTest(unittest.TestCase):
         self.assertFalse(should_backoff_repair(None, True))
         self.assertFalse(should_backoff_repair({"repair_ok": False}, True))
         self.assertFalse(should_backoff_repair({"repair_ok": True}, False))
-        self.assertTrue(should_backoff_repair({"repair_ok": False}, False))
+        self.assertFalse(should_backoff_repair({"repair_ok": False}, False))
+        self.assertTrue(should_backoff_repair({"repair_ok": False, "repair_attempted_at": time.time()}, False))

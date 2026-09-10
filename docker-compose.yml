@@ -22,16 +22,57 @@ services:
     security_opt:
       - no-new-privileges:true
 
-  # Optional legacy external signer. Builtin mode runs entirely in grok2api.
+  # External signing and continuous repair share one published material snapshot.
   statsig-signer:
     profiles: ["external-signer"]
+    image: "${STATSIG_IMAGE:-grok2api-statsig:local}"
     build:
       context: ./tools/statsig-signer
     # Rebuild on up so updated signing code and data are included.
     pull_policy: build
+    environment:
+      STATSIG_STATE_DIR: /var/lib/statsig
+    volumes:
+      - statsig_state:/var/lib/statsig
     restart: unless-stopped
     init: true
     stop_grace_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+  statsig-watch:
+    profiles: ["external-signer"]
+    image: "${STATSIG_IMAGE:-grok2api-statsig:local}"
+    pull_policy: never
+    command: ["python3", "-m", "statsig_signer", "watch", "--repair"]
+    environment:
+      STATSIG_STATE_DIR: /var/lib/statsig
+      GROK2API_BASE: "${STATSIG_LLM_BASE:-}"
+      GROK2API_KEY: "${STATSIG_LLM_API_KEY:-}"
+      GROK2API_MODEL: "${STATSIG_LLM_MODEL:-grok-4.6}"
+      GROK_SSO: "${STATSIG_GROK_SSO:-}"
+      STATSIG_AGENT_MAX_TURNS: "${STATSIG_AGENT_MAX_TURNS:-200}"
+      STATSIG_WATCH_INTERVAL: "${STATSIG_WATCH_INTERVAL:-60}"
+      STATSIG_REPAIR_RETRY_SECONDS: "${STATSIG_REPAIR_RETRY_SECONDS:-300}"
+      STATSIG_DEEP_EVERY: "${STATSIG_DEEP_EVERY:-30}"
+      PROXY_SERVER: "${STATSIG_PROXY_SERVER:-}"
+      PROXY_USERNAME_TMPL: "${STATSIG_PROXY_USERNAME:-}"
+      PROXY_PASSWORD: "${STATSIG_PROXY_PASSWORD:-}"
+    volumes:
+      - statsig_state:/var/lib/statsig
+    depends_on:
+      statsig-signer:
+        condition: service_healthy
+    shm_size: "512mb"
+    healthcheck:
+      test: ["CMD", "python3", "-m", "statsig_signer", "watch-health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
     security_opt:
       - no-new-privileges:true
 
@@ -94,3 +135,4 @@ services:
 volumes:
   grok2api-data:
   quality_guard_state:
+  statsig_state:

@@ -172,6 +172,8 @@ class HotRuntime:
             proc.wait(timeout=1)
         except Exception:
             pass
+        if proc.stdout:
+            proc.stdout.close()
 
 
 _runtime: HotRuntime | None = None

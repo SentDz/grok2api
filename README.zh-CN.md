@@ -210,7 +210,16 @@ docker build -t grok2api:local . && GROK2API_IMAGE=grok2api:local docker compose
 有效材料、上个版本和最近 20 条更新记录保存在数据库中，支持手动验证、刷新和回退。
 采集失败时保留旧版本；网页协议发生无法自动修复的变化时，管理端显示失败原因。
 镜像内 Chromium 以主程序的非 root 用户运行；Docker 环境默认禁用 Chromium 自身沙箱，采集出口限制为 Grok、x.ai 和 Cloudflare 域名。
-原独立签名器保留为兼容选项：`docker compose --profile external-signer up -d`，配合 URL 模式使用。
+独立签名器支持常驻监测与外部 LLM 自动修复。先按根目录 `.env.example` 填写 `.env` 中的
+模型 API 地址、Key、模型名和采集用 Grok SSO，再一行重新构建并部署整套服务：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.statsig.yml --profile external-signer up -d --build --wait
+```
+
+管理端选择 URL 模式并设置 `http://statsig-signer:8788/sign`。默认每 60 秒检查发版，
+浏览器定期验签，失败退避重试；验证通过的材料持久化并由签名服务热加载。
+部署配置及状态检查见 [独立签名器文档](tools/statsig-signer/README.md)。
 
 访问 `http://127.0.0.1:7878`。镜像已包含前端，SQLite 数据库与本地媒体保存在 Compose 数据卷中。
 
