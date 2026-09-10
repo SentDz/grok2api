@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import sys
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +12,7 @@ from typing import Any
 from .algorithm import Formula, build_statsig, compute_hex, curves_hash, decode_seed, inspect_statsig_id
 from .capture import capture
 from .hermes import HermesKernel, Tool, grok2api_complete
-from .recover import recover_formula
+from .recover import recover_formula, recover_formula_stable
 from .runtime import HotRuntime, default_runtime
 from .store import Pair, Store
 
@@ -18,10 +20,10 @@ SYSTEM = """你是 grok.com x-statsig-id 维修内核。
 算法是可执行 JS：签名器常驻 Node，用 vm.eval 跑 hot/hex.js 里的 computeHex(seed, paths)。
 不要改 Go。需要新鲜对照时自己调用 capture_page（本机浏览器或 x2api），钩 digest 和 animate(4096)。
 70 字节壳仍由签名器 Python 套（epoch 1682924400，salt obfiowerehiring，末字节 0x03）。
-步骤：capture_page → inspect_capture / find_signer_chunk → recover_indices；
-对不上就按 chunk 源码改 computeHex。eval_hot_js 对上官方 HEX 才能 write_hot_js。
-verify_signature 通过才接受。前端大改时反复抓包、拉 chunk、eval，最多 200 轮。
-对不上官方 HEX 不准写入。
+步骤：capture_page → recover_indices。返回 hex_js 就立刻 write_hot_js(source=hex_js 原文)，不要改、不要自己再 capture 第二页。
+write 失败若仍返回 hex_js，立刻再 write_hot_js。若 status=ambiguous 或 next=capture_page，换 / 与 /imagine 再 capture_page，然后 recover_indices。
+find_signer_chunk 为空或 fetch_chunk 404 时不要空转。两页碰巧对上但下标不唯一时不准写入。
+write 成功后必须 verify_signature：它会再 capture 一页新鲜对照，不能拿写入时那次 seed 充数。新鲜页对不上就不能 exit。
 """
 
 
@@ -67,10 +69,20 @@ def update(
         store.formula,
         _seek_hint(captured),
     )
-    if recovered.status in ("matched", "recovered") and recovered.formula is not None and not force_hermes:
-        if recovered.status == "recovered":
-            store.save_formula(recovered.formula)
-            runtime.write_js(_hex_js_for_formula(recovered.formula, runtime))
+    if recovered.status == "matched" and recovered.formula is not None and not force_hermes:
+        store.save_pair(pair)
+        accepted = _accept(runtime, pair, recovered.formula)
+        return {
+            "ok": accepted.get("ok", False),
+            "stage": recovered.status,
+            "reason": recovered.reason,
+            "formula": recovered.formula.to_dict(),
+            "pair": {"hex": pair.hex, "curves_hash": pair.curves_hash, "source": pair.source},
+            "accepted": accepted,
+        }
+    if recovered.status == "recovered" and recovered.formula is not None and fixture is not None and not force_hermes:
+        store.save_formula(recovered.formula)
+        runtime.write_js(_hex_js_for_formula(recovered.formula, runtime))
         store.save_pair(pair)
         accepted = _accept(runtime, pair, recovered.formula)
         return {
@@ -133,6 +145,7 @@ def _finish_hermes(store: Store, captured: dict[str, Any], runtime: HotRuntime, 
         "stage": "hermes",
         "content": result.content,
         "turns": result.turns,
+        "stopped": getattr(result, "stopped", ""),
         "formula": store.formula.to_dict(),
         "pair": pair_info,
         "capture": _public_capture(captured),
@@ -153,20 +166,49 @@ def _kernel(
     if not key:
         raise RuntimeError("Hermes 需要 GROK2API_KEY 指向 grok2api 客户端密钥")
     extra = dict(capture_kwargs or {})
+    samples: list[dict[str, Any]] = []
 
     def _need_capture() -> dict[str, Any] | None:
         if captured.get("seed") and captured.get("hex") and captured.get("paths"):
             return None
         return {"error": "先调用 capture_page 抓同一页 seed/HEX/curves"}
 
+    def _remember(result: dict[str, Any] | None) -> None:
+        if not result or not (result.get("seed") and result.get("hex") and result.get("paths")):
+            return
+        try:
+            seed_bytes = decode_seed(result["seed"])
+        except Exception:
+            return
+        sample = {
+            "seed_bytes": seed_bytes,
+            "paths": list(result["paths"]),
+            "hex": result["hex"],
+            "seek": _seek_hint(result),
+            "url": result.get("url"),
+        }
+        for existing in samples:
+            if existing["seed_bytes"] == sample["seed_bytes"] and existing["hex"] == sample["hex"]:
+                return
+        samples.append(sample)
+
     def capture_page(browser: str = "local", url: str = "https://grok.com/imagine", headed: bool = False) -> dict[str, Any]:
         kwargs = dict(extra)
         kwargs.update({"url": url, "headed": headed})
         if browser == "x2api" and extra.get("addr"):
             kwargs["addr"] = extra["addr"]
-        result = capture_fn(browser=browser, **kwargs)
+        try:
+            result = capture_fn(browser=browser, **kwargs)
+        except Exception as exc:
+            if browser == "x2api":
+                result = capture_fn(browser="local", **{k: v for k, v in kwargs.items() if k != "addr"})
+                result = result or {}
+                result["fallback"] = f"x2api 失败已改 local: {exc}"
+            else:
+                raise
         captured.clear()
         captured.update(result or {})
+        _remember(captured)
         public = _public_capture(captured)
         if captured.get("ok"):
             public["hex"] = captured.get("hex")
@@ -176,6 +218,7 @@ def _kernel(
                 {"url": item.get("url"), "hits": item.get("hits")}
                 for item in (captured.get("signer_chunks") or [])
             ]
+            public["sample_count"] = len(samples)
         return public
 
     def inspect_capture() -> dict[str, Any]:
@@ -187,6 +230,8 @@ def _kernel(
         keyframes = ((anims[0] or {}).get("keyframes") if anims else []) or []
         return {
             "official_hex": captured.get("hex"),
+            "hex_from_tostring": captured.get("hex_from_tostring") or "",
+            "hex_agree": bool(captured.get("hex_agree")),
             "hex_len": len(captured.get("hex") or ""),
             "salt": captured.get("salt"),
             "prefix": captured.get("prefix") or "",
@@ -213,31 +258,67 @@ def _kernel(
 
         found = discover_signer_chunks(urls)
         captured["signer_chunks"] = found
-        return {"ok": bool(found), "chunks": found}
+        if not found:
+            return {
+                "ok": False,
+                "chunks": [],
+                "next": "recover_indices",
+                "note": "明文 salt chunk 找不到是正常的。不要无界 fetch_chunk，对 recover_indices 的 hex_js 调用 write_hot_js。",
+            }
+        return {"ok": True, "chunks": found}
 
     def recover() -> dict[str, Any]:
         missing = _need_capture()
         if missing:
             return missing
-        result = recover_formula(
-            decode_seed(captured["seed"]),
-            captured["paths"],
-            captured["hex"],
-            store.formula,
-            _seek_hint(captured),
-        )
-        payload: dict[str, Any] = {"status": result.status, "reason": result.reason, "candidates": result.candidates}
+        _remember(captured)
+        if len(samples) >= 2:
+            result = recover_formula_stable(samples, store.formula)
+        else:
+            result = recover_formula(
+                decode_seed(captured["seed"]),
+                captured["paths"],
+                captured["hex"],
+                store.formula,
+                _seek_hint(captured),
+            )
+        payload: dict[str, Any] = {
+            "status": result.status,
+            "reason": result.reason,
+            "candidates": result.candidates,
+            "sample_count": len(samples),
+        }
         if result.formula:
-            store.save_formula(result.formula)
             payload["formula"] = result.formula.to_dict()
-            payload["hex_js"] = _hex_js_for_formula(result.formula)
+            payload["hex_js"] = _hex_js_for_formula(result.formula, runtime)
+            payload["next"] = "write_hot_js"
+            payload["note"] = "把 hex_js 原样交给 write_hot_js。第二页由该工具内部验证，不要再 capture_page。"
+        elif result.status == "ambiguous":
+            payload["next"] = "capture_page"
+            payload["note"] = "下标还不唯一。换 / 或 /imagine 再 capture_page，然后 recover_indices，不要 fetch_chunk。"
         return payload
 
     def fetch_chunk(url: str) -> dict[str, Any]:
         if not url.startswith("https://cdn.grok.com/"):
-            return {"error": "只允许 cdn.grok.com chunk"}
-        with urllib.request.urlopen(url, timeout=20) as response:
-            text = response.read()[:120_000].decode("utf-8", errors="replace")
+            return {"error": "只允许 cdn.grok.com chunk", "next": "write_hot_js"}
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+                "Referer": "https://grok.com/",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                text = response.read()[:120_000].decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            return {
+                "ok": False,
+                "url": url,
+                "error": f"HTTP {exc.code}",
+                "next": "write_hot_js",
+                "note": "这个 URL 不用再拉。有 hex_js 就 write_hot_js。",
+            }
         needles = ["obfiowerehiring", "animate", "4096", "x-statsig-id", "getComputedStyle"]
         hits = [item for item in needles if item in text]
         snippet = ""
@@ -262,6 +343,60 @@ def _kernel(
             return check
         if not check["match"]:
             return {"ok": False, "error": "eval HEX 不等于官方 HEX，拒绝写入", **check}
+        if captured.get("browser") != "fixture":
+            first_url = str(captured.get("url") or extra.get("url") or "https://grok.com/imagine")
+            second_url = "https://grok.com/" if "imagine" in first_url else "https://grok.com/imagine"
+            print(f"write_hot_js second-page capture {second_url}", file=sys.stderr, flush=True)
+            second = capture_fn(
+                browser=str(captured.get("browser") or extra.get("browser") or "local"),
+                url=second_url,
+                **{k: v for k, v in extra.items() if k not in ("url", "headed", "browser")},
+            )
+            if not (second.get("seed") and second.get("hex") and second.get("paths")):
+                return {"ok": False, "error": "第二页抓包失败，拒绝写入单次 HEX"}
+            _remember(captured)
+            _remember(second)
+            try:
+                second_hex = runtime.eval_js(source, decode_seed(second["seed"]), list(second["paths"]))
+            except Exception as exc:
+                return {"ok": False, "error": f"第二页 eval 失败: {exc}"}
+            if second_hex != second.get("hex"):
+                payload: dict[str, Any] = {
+                    "ok": False,
+                    "error": "第二页官方 HEX 不匹配，拒绝写入单次反解",
+                    "first": check,
+                    "second": {"official": second.get("hex"), "hex": second_hex, "url": second_url},
+                    "sample_count": len(samples),
+                    "status": "ambiguous",
+                    "next": "capture_page",
+                }
+                stable = recover_formula_stable(samples, store.formula)
+                payload["reason"] = stable.reason
+                if stable.formula:
+                    payload["hex_js"] = _hex_js_for_formula(stable.formula, runtime)
+                    payload["formula"] = stable.formula.to_dict()
+                    payload["status"] = stable.status
+                    payload["next"] = "write_hot_js"
+                    payload["note"] = "下标已唯一。把 hex_js 原样再 write_hot_js，不要 fetch_chunk。"
+                else:
+                    payload["status"] = stable.status
+                    payload["candidates"] = stable.candidates[:8]
+                    payload["note"] = stable.reason or "再 capture_page 后 recover_indices，不要 fetch_chunk。"
+                return payload
+            if len(samples) >= 2:
+                unique = recover_formula_stable(samples, store.formula)
+                if not unique.formula:
+                    return {
+                        "ok": False,
+                        "error": "两页 HEX 能对上，但下标还不唯一，拒绝写入",
+                        "reason": unique.reason,
+                        "status": unique.status,
+                        "sample_count": len(samples),
+                        "candidates": unique.candidates[:8],
+                        "next": "capture_page",
+                        "note": "换 / 或 /imagine 再 capture_page，然后 recover_indices。",
+                    }
+                store.save_formula(unique.formula)
         path = runtime.write_js(source)
         store.save_pair(_pair_from_capture(captured))
         return {"ok": True, "path": str(path), "hex": check["hex"]}
@@ -277,16 +412,83 @@ def _kernel(
         store.save_pair(_pair_from_capture(captured))
         return {"ok": True, "hex": captured["hex"]}
 
+    def _fresh_page_check() -> dict[str, Any] | None:
+        if captured.get("browser") == "fixture":
+            return None
+        first_url = str(captured.get("url") or extra.get("url") or "https://grok.com/imagine")
+        fresh_url = "https://grok.com/" if "imagine" in first_url else "https://grok.com/imagine"
+        print(f"verify_signature fresh capture {fresh_url}", file=sys.stderr, flush=True)
+        fresh = capture_fn(
+            browser=str(captured.get("browser") or extra.get("browser") or "local"),
+            url=fresh_url,
+            **{k: v for k, v in extra.items() if k not in ("url", "headed", "browser")},
+        )
+        if not (fresh.get("seed") and fresh.get("hex") and fresh.get("paths")):
+            return {"ok": False, "exit": False, "error": "验签新鲜抓包失败", "next": "capture_page"}
+        _remember(fresh)
+        try:
+            hot_hex = runtime.eval_js(runtime.current_js(), decode_seed(fresh["seed"]), list(fresh["paths"]))
+        except Exception as exc:
+            return {"ok": False, "exit": False, "error": f"新鲜页 eval 失败: {exc}"}
+        if hot_hex == fresh.get("hex"):
+            return _accept(runtime, _pair_from_capture(fresh), store.formula)
+        payload: dict[str, Any] = {
+            "ok": False,
+            "exit": False,
+            "error": "新鲜页官方 HEX 不匹配，不能退出",
+            "fresh": {"url": fresh_url, "official": fresh.get("hex"), "hex": hot_hex},
+            "sample_count": len(samples),
+            "next": "capture_page",
+        }
+        if len(samples) >= 2:
+            stable = recover_formula_stable(samples, store.formula)
+            payload["status"] = stable.status
+            payload["reason"] = stable.reason
+            if stable.formula:
+                payload["hex_js"] = _hex_js_for_formula(stable.formula, runtime)
+                payload["formula"] = stable.formula.to_dict()
+                payload["next"] = "write_hot_js"
+                payload["note"] = "把 hex_js 原样 write_hot_js，不要 fetch_chunk。"
+            else:
+                payload["candidates"] = stable.candidates[:8]
+                payload["note"] = stable.reason or "再 capture_page 后 recover_indices。"
+        else:
+            payload["note"] = "再 capture_page 后 recover_indices，不要 fetch_chunk。"
+        return payload
+
     def verify_signature() -> dict[str, Any]:
         missing = _need_capture()
         if missing:
             return missing
-        return _accept(runtime, _pair_from_capture(captured), store.formula)
+        accepted = _accept(runtime, _pair_from_capture(captured), store.formula)
+        if not accepted.get("ok"):
+            accepted["exit"] = False
+            accepted["next"] = "recover_indices"
+            return accepted
+        fresh = _fresh_page_check()
+        if fresh is not None:
+            if not fresh.get("ok"):
+                return fresh
+            accepted = fresh
+        accepted["exit"] = True
+        accepted["reason"] = "verify_signature 通过（含新鲜页）"
+        return accepted
+
+    def exit_repair(reason: str = "") -> dict[str, Any]:
+        accepted = verify_signature()
+        if not accepted.get("ok"):
+            return {
+                "ok": False,
+                "exit": False,
+                "error": accepted.get("error") or "验签未通过，不能退出",
+                "accepted": accepted,
+            }
+        return {"ok": True, "exit": True, "reason": reason or accepted.get("reason") or "verify_signature 通过"}
 
     tools = [
         Tool(
             "capture_page",
-            "打开 grok.com/imagine，钩 digest 和 animate(4096)，抓同一页 seed、官方 HEX、4 条 curves。browser=local 或 x2api。",
+            "打开 grok.com/imagine。官方 HEX 来自 crypto.subtle.digest 里 salt 后的明文，并用 Number#toString(16) 交叉。animate(4096)/getAnimations 只提供 seek 提示。browser=local 或 x2api。",
             {
                 "type": "object",
                 "properties": {
@@ -306,7 +508,7 @@ def _kernel(
         ),
         Tool(
             "write_hot_js",
-            "仅当 eval 结果等于官方 HEX 时写入 hot/hex.js，签名器按 mtime 热加载",
+            "把 recover_indices 返回的 hex_js 原样写入。内部再抓一页对照；两页对上且下标唯一才落盘。成功后再 verify_signature。",
             {"type": "object", "properties": {"source": {"type": "string"}}, "required": ["source"]},
             write_hot_js,
         ),
@@ -320,7 +522,18 @@ def _kernel(
             fetch_chunk,
         ),
         Tool("apply_pair", "热代码已匹配官方 HEX 时，只更新 seed/curves/官方 HEX", {"type": "object", "properties": {}}, apply_pair),
-        Tool("verify_signature", "用当前热代码和抓包对照验签：HEX 和 70 字节壳都对才接受", {"type": "object", "properties": {}}, verify_signature),
+        Tool(
+            "verify_signature",
+            "先核写入时那页，再自己 capture 另一页新鲜对照。两页 HEX 和 70 字节壳都对才接受并退出。新鲜页不对不能 exit。",
+            {"type": "object", "properties": {}},
+            verify_signature,
+        ),
+        Tool(
+            "exit",
+            "验签通过后结束任务。未通过会被拒绝并继续。",
+            {"type": "object", "properties": {"reason": {"type": "string"}}},
+            exit_repair,
+        ),
     ]
     max_turns = int(os.environ.get("STATSIG_AGENT_MAX_TURNS") or "200")
     return HermesKernel(grok2api_complete(base, key, model, timeout=180), tools, max_turns=max_turns)
@@ -343,18 +556,74 @@ def _accept(runtime: HotRuntime, pair: Pair, formula: Formula) -> dict[str, Any]
     return {"ok": True, "hex": hot_hex, "statsig_id": signature, "mark": info["mark"]}
 
 
-def _hex_js_for_formula(formula: Formula, runtime: HotRuntime | None = None) -> str:
-    source = (Path(__file__).resolve().parents[1] / "hot" / "hex.js").read_text(encoding="utf-8")
-    seeks = formula.seek_indices
-    source = source.replace("seed[5] % 4", f"seed[{formula.path_index}] % {formula.path_mod}", 1)
-    source = source.replace("seed[39] % 16", f"seed[{formula.seg_index}] % {formula.seg_mod}", 1)
-    old_seek = "((seed[3] % 16) * (seed[31] % 16) * (seed[36] % 16))"
-    new_seek = (
-        f"((seed[{seeks[0]}] % {formula.seek_mod}) * "
-        f"(seed[{seeks[1]}] % {formula.seek_mod}) * "
-        f"(seed[{seeks[2]}] % {formula.seek_mod}))"
+_COMPUTE_HEX = re.compile(r"function computeHex\(seed, paths\) \{.*?\n\}", re.S)
+
+
+def _confirm_or_stabilize(
+    do_capture: Any,
+    browser: str,
+    capture_kwargs: dict[str, Any],
+    first: dict[str, Any],
+    current: Formula,
+    recovered: Any,
+) -> Any:
+    first_url = str(first.get("url") or capture_kwargs.get("url") or "https://grok.com/imagine")
+    second_url = "https://grok.com/" if "imagine" in first_url else "https://grok.com/imagine"
+    kwargs = dict(capture_kwargs or {})
+    kwargs["url"] = second_url
+    second = do_capture(browser=browser, **kwargs)
+    if not (second.get("seed") and second.get("hex") and second.get("paths")):
+        recovered.status = "needs_agent"
+        recovered.reason = "第二页抓包失败，拒绝写入单次反解下标"
+        recovered.formula = None
+        return recovered
+    try:
+        second_hex = compute_hex(decode_seed(second["seed"]), list(second["paths"]), recovered.formula)
+    except Exception:
+        second_hex = ""
+    if second_hex == second.get("hex"):
+        recovered.reason = "第二页官方 HEX 也匹配，接受公式"
+        return recovered
+    stable = recover_formula_stable(
+        [
+            {
+                "seed_bytes": decode_seed(first["seed"]),
+                "paths": first.get("paths"),
+                "hex": first.get("hex"),
+                "seek": _seek_hint(first),
+            },
+            {
+                "seed_bytes": decode_seed(second["seed"]),
+                "paths": second.get("paths"),
+                "hex": second.get("hex"),
+                "seek": _seek_hint(second),
+            },
+        ],
+        current,
     )
-    return source.replace(old_seek, new_seek, 1)
+    return stable
+
+
+def _hex_js_for_formula(formula: Formula, runtime: HotRuntime | None = None) -> str:
+    path = (runtime.js_path if runtime is not None else None) or (Path(__file__).resolve().parents[1] / "hot" / "hex.js")
+    source = path.read_text(encoding="utf-8") if path.exists() else (Path(__file__).resolve().parents[1] / "hot" / "hex.js").read_text(encoding="utf-8")
+    seeks = list(formula.seek_indices) + [0, 0, 0]
+    body = (
+        "function computeHex(seed, paths) {\n"
+        f"  const pathIndex = seed[{formula.path_index}] % {formula.path_mod};\n"
+        "  const path = paths[pathIndex];\n"
+        "  const segments = pathSegments(path);\n"
+        f"  const segIdx = seed[{formula.seg_index}] % {formula.seg_mod};\n"
+        "  const seek = Math.round((("
+        f"seed[{seeks[0]}] % {formula.seek_mod}) * "
+        f"(seed[{seeks[1]}] % {formula.seek_mod}) * "
+        f"(seed[{seeks[2]}] % {formula.seek_mod})) / 10) * 10;\n"
+        f"  return hexFromSegment(segments[segIdx], seek, {int(formula.duration)});\n"
+        "}"
+    )
+    if _COMPUTE_HEX.search(source):
+        return _COMPUTE_HEX.sub(body, source, count=1)
+    return source.rstrip() + "\n\n" + body + "\n"
 
 
 def _pair_from_capture(captured: dict[str, Any]) -> Pair:

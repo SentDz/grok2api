@@ -32,6 +32,15 @@ grok2api 允许的内网地址：`http://127.0.0.1:8788/sign`。
 以非 root 用户运行，只监听容器内网端口，不向宿主机发布 8788 端口。
 该服务仅供 URL 模式使用，内置模式不依赖它。
 
+如果主项目已部署，在仓库根目录只构建并更新独立签名器：
+
+```bash
+docker compose --profile external-signer up -d --build --no-deps --wait statsig-signer
+```
+
+命令等待签名器健康检查通过后退出，不重建或重启主项目。主项目在同一 Compose 网络内时，
+继续使用 `http://statsig-signer:8788/sign`；独立 Compose 项目的主程序需要接入同一 Docker 网络。
+
 在仓库根目录显式启用兼容签名服务（使用支持 `pull_policy: build` 的 Docker Compose v2）：
 
 ```bash
@@ -106,9 +115,26 @@ python3 -m statsig_signer update --browser x2api
 
 不要把 Playwright / x2api 接到生产签名路径。生产只跑 `serve`。
 
+## 发版监测
+
+grok.com HTML 里已经有发版标记，不必每轮开浏览器：
+
+- `meta baggage` 的 `sentry-release=grok-web@<git sha>`（发版必变）
+- RSC 里的 `\"curves\":`（4 组 SVG 控制点）
+- `cdn.grok.com/_next/static/chunks/*.js` 文件名集合的哈希（内容哈希命名，JS 一变就变）
+
+```bash
+python3 -m statsig_signer watch --interval 60 --repair
+```
+
+默认 60 秒 GET `/imagine`。sentry / curves / chunks 任一变化才跑 Hermes。不要用最后 12 个 chunk 名，也不要把 HTML 脚本列表和 Playwright 抓到的 signer URL 交叉比较。`--deep-every 0` 表示识别只靠 HTML；HEX 对错由 repair 自己抓包验证。
+
 ## 测试
 
 ```bash
 cd tools/statsig-signer
 PYTHONPATH=. python3 -m unittest discover -s tests -v
 ```
+
+私有浏览器抓包调试文件未随仓库发布，相关测试默认在文件缺失时跳过。
+可通过 `STATSIG_HOOK_DEBUG` 指定该文件；仓库内的签名样本、修复流程和 HTTP 接口测试照常运行。

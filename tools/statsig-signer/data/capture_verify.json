@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "observed_at": "2026-09-09T15:34:21.231239+00:00",
+  "url": "https://grok.com/imagine",
+  "browser": "local",
+  "sentry_release": "grok-web@83ad770aa0180383c9a28b0afff8805dc77542cd",
+  "curves_hash": "b579211438a6d0ba5a3981556abfdc89c0f53a610a84c5ffea33011c500924f7",
+  "salt": "obfiowerehiring",
+  "hex": "46a1610570a3d70a3d70c0f0a3d70a3d70a0f0a3d70a3d70a0570a3d70a3d70c00",
+  "hex_from_tostring": "",
+  "hex_agree": false,
+  "to16_count": 64,
+  "to16_joined_len": 125,
+  "hex_len": 66,
+  "seed_len": 64,
+  "path_count": 4,
+  "seeks": [
+    {
+      "value": 2100,
+      "via": "currentTime"
+    }
+  ],
+  "anims_via": [
+    "animate"
+  ],
+  "polls": 13,
+  "elapsed_ms": 26552,
+  "hot_js_hex": "46a1610570a3d70a3d70c0f0a3d70a3d70a0f0a3d70a3d70a0570a3d70a3d70c00",
+  "hot_js_match": true,
+  "hot_js_error": "",
+  "html_sentry": "grok-web@83ad770aa0180383c9a28b0afff8805dc77542cd",
+  "html_curves_hash": "b579211438a6d0ba5a3981556abfdc89c0f53a610a84c5ffea33011c500924f7",
+  "html_chunks_hash": "71c14e7337c59aefde5c693e1d037fcbdb026ee102f17ec3ad8b1b53e106c31e",
+  "html_script_count": 135,
+  "html_vs_capture": {
+    "sentry_same": true,
+    "curves_same": true
+  },
+  "notes": "digest HEX is ground truth and matches hot/hex.js (path 5, seg 33, seek 1/14/37). Number#toString(16) ring of 64 calls (joined 125 chars) does not contain the official HEX, so it is not how grok currently encodes. getAnimations() did not observe duration 4096; Element.animate currentTime did. HTML GET sentry+curves match the Playwright capture."
+}

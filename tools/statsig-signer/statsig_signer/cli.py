@@ -42,12 +42,12 @@ def main(argv: list[str] | None = None) -> int:
     upd.add_argument("--fixture", default="", help="用已有 pair.json，不打开浏览器")
 
     watch_cmd = sub.add_parser("watch", help="监测 grok 前端 curves/chunk/sentry 是否发版")
-    watch_cmd.add_argument("--interval", type=int, default=300)
+    watch_cmd.add_argument("--interval", type=int, default=60)
     watch_cmd.add_argument("--once", action="store_true")
     watch_cmd.add_argument("--deep", action="store_true", help="这一轮用浏览器抓包对照官方 HEX")
     watch_cmd.add_argument("--repair", action="store_true", help="发现变化时自动抓包修复热代码")
     watch_cmd.add_argument("--browser", choices=("local", "x2api"), default="local")
-    watch_cmd.add_argument("--deep-every", type=int, default=6, help="每 N 轮做一次浏览器深探，0 表示只用 HTML")
+    watch_cmd.add_argument("--deep-every", type=int, default=0, help="每 N 轮浏览器深探 HEX，0 表示只靠 HTML 指纹（sentry/curves/chunks）")
 
     args = parser.parse_args(argv)
     store = Store()
@@ -74,12 +74,17 @@ def main(argv: list[str] | None = None) -> int:
         public = {
             "ok": captured.get("ok"),
             "hex": captured.get("hex"),
+            "hex_from_tostring": captured.get("hex_from_tostring"),
+            "hex_agree": captured.get("hex_agree"),
             "seed": captured.get("seed"),
             "paths": captured.get("paths"),
             "curves_hash": captured.get("curves_hash"),
             "sentry_release": captured.get("sentry_release"),
             "seek": (captured.get("seeks") or [{}])[0].get("value") if captured.get("seeks") else None,
+            "seek_via": (captured.get("seeks") or [{}])[0].get("via") if captured.get("seeks") else None,
             "salt": captured.get("salt"),
+            "polls": captured.get("polls"),
+            "elapsed_ms": captured.get("elapsed_ms"),
         }
         print(json.dumps(public, ensure_ascii=False, indent=2))
         return 0 if captured.get("ok") else 2

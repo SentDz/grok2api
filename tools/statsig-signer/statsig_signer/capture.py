@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +15,21 @@ SIGNER_MARKERS = ("obfiowerehiring", "x-statsig-id", "animate", "4096", "getComp
 
 HOOK_JS = r"""
 () => {
-  window.__sig = window.__sig || { digest: null, seeks: [], anims: [], chunks: [] };
+  window.__sig = window.__sig || { digest: null, seeks: [], anims: [], chunks: [], to16: [] };
   if (window.__sig._hooked) return true;
   window.__sig._hooked = true;
+  const origTS = Number.prototype.toString;
+  Number.prototype.toString = function (radix) {
+    const out = origTS.apply(this, arguments);
+    try {
+      if (radix === 16) {
+        const buf = window.__sig.to16;
+        buf.push(out);
+        if (buf.length > 64) buf.splice(0, buf.length - 64);
+      }
+    } catch (e) {}
+    return out;
+  };
   const origDigest = crypto.subtle.digest.bind(crypto.subtle);
   crypto.subtle.digest = function (algo, data) {
     try {
@@ -31,9 +45,18 @@ HOOK_JS = r"""
         }
       }
       if (idx >= 0) {
+        const hex = text.slice(idx + salt.length);
+        const stripped = String(hex).replace(/[.-]/g, "");
+        const parts = window.__sig.to16 || [];
+        const joined = parts.join("").replace(/[.-]/g, "");
+        const hexAgree = Boolean(stripped) && joined.indexOf(stripped) >= 0;
         window.__sig.digest = {
           seed,
-          hex: text.slice(idx + salt.length),
+          hex,
+          hexFromToString: hexAgree ? stripped : "",
+          hexAgree,
+          to16Count: parts.length,
+          to16JoinedLen: joined.length,
           salt,
           prefix: text.slice(0, Math.min(idx + 48, 240)),
         };
@@ -50,14 +73,14 @@ HOOK_JS = r"""
       const duration = typeof options === "number" ? options : options && options.duration;
       if (duration === 4096) {
         const kfs = anim.effect && anim.effect.getKeyframes ? anim.effect.getKeyframes() : [];
-        window.__sig.anims.push({ duration, keyframes: kfs });
+        window.__sig.anims.push({ duration, keyframes: kfs, via: "animate" });
         const desc = Object.getOwnPropertyDescriptor(Animation.prototype, "currentTime");
         if (desc && desc.set) {
           Object.defineProperty(anim, "currentTime", {
             configurable: true,
             get() { return desc.get.call(this); },
             set(value) {
-              window.__sig.seeks.push({ value, href: location.href });
+              window.__sig.seeks.push({ value, href: location.href, via: "currentTime" });
               return desc.set.call(this, value);
             },
           });
@@ -74,6 +97,19 @@ PROBE_JS = r"""
 async () => {
   try {
     await fetch("/rest/modes", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  } catch (e) {}
+  try {
+    const anims = document.getAnimations ? document.getAnimations() : [];
+    for (const anim of anims) {
+      const timing = anim.effect && anim.effect.getTiming ? anim.effect.getTiming() : null;
+      const duration = timing && timing.duration;
+      if (duration === 4096 && anim.currentTime != null) {
+        window.__sig.seeks.push({ value: anim.currentTime, href: location.href, via: "getAnimations" });
+        if (anim.effect && anim.effect.getKeyframes) {
+          window.__sig.anims.push({ duration, keyframes: anim.effect.getKeyframes(), via: "getAnimations" });
+        }
+      }
+    }
   } catch (e) {}
   return window.__sig || null;
 }
@@ -157,15 +193,18 @@ def capture_local(url: str = "https://grok.com/imagine", headed: bool = False, t
                     chunks.append(resp_url)
 
             page.on("response", on_response)
+            started = time.monotonic()
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             hooked = None
-            for i in range(28):
+            polls = 0
+            for i in range(20):
+                polls = i + 1
+                if i in (0, 2, 6, 12):
+                    page.evaluate(PROBE_JS)
                 hooked = page.evaluate("() => window.__sig")
                 if hooked and hooked.get("digest") and hooked["digest"].get("hex"):
                     break
-                if i in (4, 10, 16):
-                    page.evaluate(PROBE_JS)
-                page.wait_for_timeout(400)
+                page.wait_for_timeout(250)
             html = page.content()
             paths = extract_curve_paths(html)
             digest = (hooked or {}).get("digest") or {}
@@ -174,6 +213,10 @@ def capture_local(url: str = "https://grok.com/imagine", headed: bool = False, t
                     "ok": bool(digest.get("seed") and digest.get("hex") and len(paths) == 4),
                     "seed": digest.get("seed") or "",
                     "hex": digest.get("hex") or "",
+                    "hex_from_tostring": digest.get("hexFromToString") or "",
+                    "hex_agree": bool(digest.get("hexAgree")),
+                    "to16_count": digest.get("to16Count"),
+                    "to16_joined_len": digest.get("to16JoinedLen"),
                     "salt": digest.get("salt") or "",
                     "prefix": digest.get("prefix") or "",
                     "paths": paths,
@@ -184,6 +227,8 @@ def capture_local(url: str = "https://grok.com/imagine", headed: bool = False, t
                     "sentry_release": extract_sentry_release(html),
                     "curves_hash": curves_hash(paths) if paths else "",
                     "digest_raw": (hooked or {}).get("digestRaw") or "",
+                    "polls": polls,
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
                 }
             )
             result["signer_chunks"] = discover_signer_chunks(result.get("chunks") or result.get("script_urls") or [])
@@ -227,3 +272,37 @@ def _init_script() -> str:
     if body.startswith("() =>"):
         body = body[body.find("{") + 1 : body.rfind("}")]
     return body
+
+
+def verify_record(captured: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Redacted capture log: no SSO, seed only as length."""
+    seeks = captured.get("seeks") or []
+    anims = captured.get("anims") or []
+    record = {
+        "ok": bool(captured.get("ok")),
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "url": captured.get("url") or "",
+        "browser": captured.get("browser") or "",
+        "sentry_release": captured.get("sentry_release") or "",
+        "curves_hash": captured.get("curves_hash") or "",
+        "salt": captured.get("salt") or "",
+        "hex": captured.get("hex") or "",
+        "hex_from_tostring": captured.get("hex_from_tostring") or "",
+        "hex_agree": bool(captured.get("hex_agree")),
+        "to16_count": captured.get("to16_count"),
+        "to16_joined_len": captured.get("to16_joined_len"),
+        "hex_len": len(captured.get("hex") or ""),
+        "seed_len": len(captured.get("seed") or ""),
+        "path_count": len(captured.get("paths") or []),
+        "seeks": [
+            {"value": item.get("value"), "via": item.get("via")}
+            for item in seeks[:8]
+            if isinstance(item, dict)
+        ],
+        "anims_via": [item.get("via") for item in anims[:8] if isinstance(item, dict)],
+        "polls": captured.get("polls"),
+        "elapsed_ms": captured.get("elapsed_ms"),
+    }
+    if extra:
+        record.update(extra)
+    return record

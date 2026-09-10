@@ -55,3 +55,10 @@ class SignHTTPTest(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["formula"]["path_index"], 5)
         self.assertEqual(payload["path_count"], 4)
+
+    def test_fingerprint_exposes_frontend_state(self) -> None:
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/fingerprint", timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["path_count"], 4)
+        self.assertIn("frontend", payload)
