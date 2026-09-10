@@ -8,16 +8,17 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/chenyme/grok2api/backend/internal/domain/media"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
 )
 
 func TestVideoDiagnosticsIdentifyReferenceFailureStage(t *testing.T) {
 	for _, model := range []string{"grok-imagine-video", "grok-imagine-video-1.5"} {
-		for _, failure := range []struct{ path, stage string }{
-			{"/http/upload-file-v2/direct", "upload_image"},
-			{"/rest/media/post/create", "create_post"},
-			{"/rest/app-chat/conversations/new", "submit_video"},
-			{"", "wait_generation"},
+		for _, failure := range []struct{ path, stage, request string }{
+			{"/http/upload-file-v2/direct", "upload_image", ""},
+			{"/rest/media/post/create", "http_read_body", "media_post_create"},
+			{"/rest/app-chat/conversations/new", "http_read_body", "video_submit"},
+			{"", "wait_generation", ""},
 		} {
 			t.Run(model+"/"+failure.stage, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -41,11 +42,13 @@ func TestVideoDiagnosticsIdentifyReferenceFailureStage(t *testing.T) {
 				defer server.Close()
 				adapter, credential := testMediaAdapter(t, server.URL)
 				var stages []string
+				var current media.VideoEvent
 				var uploadIndex, uploadTotal int
-				ctx := provider.WithVideoStepReporter(context.Background(), func(stage string, index, total int) {
-					stages = append(stages, stage)
-					if stage == "upload_image" {
-						uploadIndex, uploadTotal = index, total
+				ctx := provider.WithVideoEventReporter(context.Background(), func(event media.VideoEvent) {
+					current = event
+					stages = append(stages, event.Stage)
+					if event.Stage == "upload_image" {
+						uploadIndex, uploadTotal = event.ItemIndex, event.ItemTotal
 					}
 				})
 				_, err := adapter.GenerateVideo(ctx, provider.VideoRequest{
@@ -54,6 +57,9 @@ func TestVideoDiagnosticsIdentifyReferenceFailureStage(t *testing.T) {
 				})
 				if (err != nil) != (failure.path != "") || len(stages) == 0 || stages[len(stages)-1] != failure.stage {
 					t.Fatalf("stages=%v err=%v", stages, err)
+				}
+				if current.Request != failure.request || (failure.request != "" && current.HTTPStatus != 400) {
+					t.Fatalf("failure operation/status = %#v", current)
 				}
 				if !slices.Contains(stages, "load_image") || uploadIndex != 1 || uploadTotal != 1 {
 					t.Fatalf("reference stages=%v item=%d/%d", stages, uploadIndex, uploadTotal)

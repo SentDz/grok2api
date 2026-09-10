@@ -16,15 +16,21 @@ func (s *Service) UpdateVideoDiagnosticsEnabled(enabled bool) {
 }
 
 func (s *Service) recordVideoStep(ctx context.Context, job *media.Job, stage string, index, total int) {
+	s.recordVideoEvent(ctx, job, media.VideoEvent{Stage: stage, ItemIndex: index, ItemTotal: total})
+}
+
+func (s *Service) recordVideoEvent(ctx context.Context, job *media.Job, event media.VideoEvent) {
 	if !s.videoDiagnosticsEnabled.Load() {
 		job.DiagnosticsDirty = false
 		return
 	}
 	now := time.Now().UTC()
-	changed := job.Diagnostics.Advance(media.VideoEvent{
-		Stage: stage, StartedAt: now, Attempt: job.Diagnostics.Attempt,
-		AccountID: job.AccountID, AccountName: job.AccountName, ItemIndex: index, ItemTotal: total,
-	})
+	if event.StartedAt.IsZero() {
+		event.StartedAt = now
+	}
+	event.Attempt, event.AccountID, event.AccountName = job.Diagnostics.Attempt, job.AccountID, job.AccountName
+	event.Error = sanitizeVideoDiagnosticError(event.Error)
+	changed := job.Diagnostics.Advance(event)
 	if !changed && now.Sub(job.UpdatedAt) < 15*time.Second {
 		return
 	}
@@ -32,8 +38,11 @@ func (s *Service) recordVideoStep(ctx context.Context, job *media.Job, stage str
 	job.DiagnosticsDirty = job.DiagnosticsDirty || changed
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
-	if err := s.mediaJobs.UpdateMediaJob(writeCtx, *job); err != nil && s.logger != nil {
-		s.logger.Warn("video_job_diagnostics_write_failed", "job_id", job.ID, "error", err)
+	if err := s.mediaJobs.UpdateMediaJob(writeCtx, *job); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("video_job_diagnostics_write_failed", "job_id", job.ID, "error", err)
+		}
+		return
 	}
 	job.DiagnosticsDirty = false
 }
@@ -47,10 +56,13 @@ func (s *Service) recordVideoDiagnosticFailure(job *media.Job, err error) {
 		return
 	}
 	status, _ := provider.ErrorHTTPStatus(err)
-	message := videoDiagnosticSecretPattern.ReplaceAllString(err.Error(), "$1[REDACTED]")
-	message = sanitizeDiagnosticText(message, 1024)
-	// Asset URLs and upload tickets can carry private input or bearer access.
-	message = diagnosticURLPattern.ReplaceAllString(message, "[REDACTED_URL]")
+	message := sanitizeVideoDiagnosticError(err.Error())
 	job.Diagnostics.Fail(message, status, time.Now().UTC())
 	job.DiagnosticsDirty = job.Diagnostics.Current() != nil
+}
+
+func sanitizeVideoDiagnosticError(message string) string {
+	message = videoDiagnosticSecretPattern.ReplaceAllString(message, "$1[REDACTED]")
+	message = sanitizeDiagnosticText(message, 1024)
+	return diagnosticURLPattern.ReplaceAllString(message, "[REDACTED_URL]")
 }

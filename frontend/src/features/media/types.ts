@@ -38,6 +38,12 @@ export type VideoTaskEvent = {
   itemTotal: number;
   error: string;
   httpStatus: number;
+  request?: string;
+  egressNodeId?: number;
+  egressNodeName?: string;
+  egressScope?: string;
+  egressMode?: string;
+  deadlineAt?: string;
 };
 
 export type VideoJobDetailDTO = MediaJobDTO & {

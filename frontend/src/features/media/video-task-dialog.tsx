@@ -11,9 +11,11 @@ import { cn } from "@/shared/lib/cn";
 import { formatDateTime } from "@/shared/lib/format";
 
 function elapsed(start: string, end: string): string {
-  const seconds = Math.max(0, Math.floor((Date.parse(end) - Date.parse(start)) / 1_000));
-  if (!Number.isFinite(seconds)) return "-";
-  return `${Math.floor(seconds / 3600).toString().padStart(2, "0")}:${Math.floor(seconds / 60 % 60).toString().padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
+  const milliseconds = Math.max(0, Date.parse(end) - Date.parse(start));
+  if (!Number.isFinite(milliseconds)) return "-";
+  if (milliseconds < 1000) return `${milliseconds} ms`;
+  const seconds = Math.floor(milliseconds / 1000);
+  return `${Math.floor(seconds / 3600).toString().padStart(2, "0")}:${Math.floor(seconds / 60 % 60).toString().padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}.${(milliseconds % 1000).toString().padStart(3, "0")}`;
 }
 
 export function VideoTaskDialog({ jobId, onClose }: { jobId: string | null; onClose: () => void }) {
@@ -33,6 +35,9 @@ export function VideoTaskDialog({ jobId, onClose }: { jobId: string | null; onCl
   const expired = job && job.status === "in_progress" && job.leaseUntil && Date.parse(job.leaseUntil) <= Date.parse(job.serverTime);
   const stageLabel = (stage: string) => t(`videoTask.stages.${stage}`, { defaultValue: stage });
   const date = (value: string) => formatDateTime(value, i18n.language);
+  const preciseDate = (value: string) => new Date(value).toLocaleString(i18n.language, {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3, hour12: false,
+  });
 
   return (
     <Dialog open={Boolean(jobId)} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -54,6 +59,7 @@ export function VideoTaskDialog({ jobId, onClose }: { jobId: string | null; onCl
                 </div>
                 <p className="break-words text-sm font-medium">{active && !job.diagnosticsEnabled ? t("videoTask.recordingDisabled") : current ? stageLabel(current.stage) : job.status === "queued" ? t("videoTask.stages.queued") : t("videoTask.unknown")}{current && current.itemTotal > 0 && (!active || job.diagnosticsEnabled) ? ` (${current.itemIndex}/${current.itemTotal})` : ""}</p>
                 {current && (!active || job.diagnosticsEnabled) ? <p className="text-muted-foreground">{t("videoTask.stageElapsed")}: <span className="font-mono">{elapsed(current.startedAt, current.finishedAt ?? job.completedAt ?? job.serverTime)}</span></p> : null}
+                {active && current?.deadlineAt && job.diagnosticsEnabled ? <p className="break-words text-muted-foreground">{t("videoTask.requestDeadline")}: {preciseDate(current.deadlineAt)}</p> : null}
               </div>
               <Tooltip>
                 <TooltipTrigger asChild><Button variant="ghost" size="icon" className="size-8 shrink-0" disabled={detail.isFetching} onClick={() => void detail.refetch()} aria-label={t("common.refresh")}><RefreshCw className={detail.isFetching ? "animate-spin" : undefined} /></Button></TooltipTrigger>
@@ -92,7 +98,13 @@ export function VideoTaskDialog({ jobId, onClose }: { jobId: string | null; onCl
                           <span className={cn("font-medium", event.error && "text-destructive")}>{stageLabel(event.stage)}{event.itemTotal > 0 ? ` (${event.itemIndex}/${event.itemTotal})` : ""}</span>
                           <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{!event.finishedAt && !job.diagnosticsEnabled ? "-" : elapsed(event.startedAt, event.finishedAt ?? job.completedAt ?? job.serverTime)}</span>
                         </div>
-                        <p className="break-all text-[11px] text-muted-foreground">{date(event.startedAt)}{event.attempt > 0 ? ` · ${t("videoTask.attempt", { count: event.attempt })}` : ""}{event.accountName ? ` · ${event.accountName}` : ""}</p>
+                        <p className="break-words text-[11px] text-muted-foreground">{preciseDate(event.startedAt)}{event.attempt > 0 ? ` · ${t("videoTask.attempt", { count: event.attempt })}` : ""}{event.accountName ? ` · ${event.accountName}` : ""}</p>
+                        {event.request || event.egressMode || event.httpStatus ? <p className="break-words text-[11px] text-muted-foreground">{[
+                          event.request ? t(`videoTask.requests.${event.request}`, { defaultValue: event.request }) : "",
+                          event.egressMode === "direct" ? t("videoTask.direct") : event.egressMode === "proxy" ? `${t("videoTask.proxy")} · ${event.egressNodeName || `#${event.egressNodeId}`}` : "",
+                          event.egressScope || "",
+                          event.httpStatus ? `HTTP ${event.httpStatus}` : "",
+                        ].filter(Boolean).join(" · ")}</p> : null}
                         {event.error ? <p className="whitespace-pre-wrap break-all text-destructive">{event.httpStatus ? `HTTP ${event.httpStatus} · ` : ""}{event.error}</p> : null}
                       </div>
                     </li>

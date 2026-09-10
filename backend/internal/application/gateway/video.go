@@ -713,9 +713,9 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 	ctx, cancel := context.WithTimeout(parent, videoJobTimeout)
 	defer cancel()
 	ctx, egressTrace := infraegress.WithTrace(ctx)
-	ctx = provider.WithVideoStepReporter(ctx, func(stage string, index, total int) {
+	ctx = provider.WithVideoEventReporter(ctx, func(event media.VideoEvent) {
 		applyMediaJobEgress(&job, egressTrace, route.Provider)
-		s.recordVideoStep(ctx, &job, stage, index, total)
+		s.recordVideoEvent(ctx, &job, event)
 	})
 	startedAt := time.Now()
 	job.Progress = max(job.Progress, 1)

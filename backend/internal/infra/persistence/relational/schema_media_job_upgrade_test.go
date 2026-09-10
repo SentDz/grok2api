@@ -15,6 +15,37 @@ import (
 	mediadomain "github.com/chenyme/grok2api/backend/internal/domain/media"
 )
 
+type previousMediaJobScopeModel struct {
+	EgressScope string `gorm:"check:chk_media_jobs_egress_scope,egress_scope IN ('','grok_web','grok_build','grok_console')"`
+}
+
+func (previousMediaJobScopeModel) TableName() string { return "media_jobs" }
+
+func TestInitializeSchemaUpgradesExistingPrimaryScopesForSubmission(t *testing.T) {
+	database := openTestDatabase(t)
+	ctx := context.Background()
+	constraint := consoleConstraint{model: &mediaJobModel{}, table: "media_jobs", name: "chk_media_jobs_egress_scope"}
+	if err := database.db.Migrator().DropConstraint(&mediaJobModel{}, constraint.name); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.Migrator().CreateConstraint(&previousMediaJobScopeModel{}, constraint.name); err != nil {
+		t.Fatal(err)
+	}
+	before, err := database.constraintDefinition(ctx, constraint)
+	if err != nil || !strings.Contains(before, "grok_console") || strings.Contains(before, "grok_web_submit") {
+		t.Fatalf("old definition=%q err=%v", before, err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := database.InitializeSchema(ctx); err != nil {
+			t.Fatal(err)
+		}
+		after, err := database.constraintDefinition(ctx, constraint)
+		if err != nil || !strings.Contains(after, "grok_web_submit") {
+			t.Fatalf("upgraded definition=%q err=%v", after, err)
+		}
+	}
+}
+
 func TestMediaJobModelTagsAllowAllVideoProvidersAndPrimaryScopes(t *testing.T) {
 	modelType := reflect.TypeOf(mediaJobModel{})
 	providerField, ok := modelType.FieldByName("Provider")
@@ -36,6 +67,7 @@ func TestMediaJobModelTagsAllowAllVideoProvidersAndPrimaryScopes(t *testing.T) {
 	if !strings.Contains(scopeTag, "chk_media_jobs_egress_scope") ||
 		!strings.Contains(scopeTag, "''") ||
 		!strings.Contains(scopeTag, "grok_web") ||
+		!strings.Contains(scopeTag, "grok_web_submit") ||
 		!strings.Contains(scopeTag, "grok_build") ||
 		!strings.Contains(scopeTag, "grok_console") ||
 		strings.Contains(scopeTag, "grok_console_asset") {
@@ -306,6 +338,19 @@ func TestInitializeSchemaUpgradesMediaJobChecksForBuild(t *testing.T) {
 	}
 	if err := jobs.CreateMediaJob(ctx, webJob); err != nil {
 		t.Fatalf("web media job regression: %v", err)
+	}
+	submissionJob := webJob
+	submissionJob.EgressScope = "grok_web_submit"
+	submissionJob.Status, submissionJob.Progress = mediadomain.StatusInProgress, 50
+	submissionJob.Diagnostics.Advance(mediadomain.VideoEvent{Stage: "http_wait_headers", Request: "video_submit", StartedAt: now,
+		EgressMode: "proxy", EgressScope: "grok_web_submit"})
+	submissionJob.DiagnosticsDirty = true
+	if err := jobs.UpdateMediaJob(ctx, submissionJob); err != nil {
+		t.Fatalf("submission scope prevented progress/timeline persistence: %v", err)
+	}
+	savedSubmission, err := jobs.GetMediaJob(ctx, webJob.ID, key.ID)
+	if err != nil || savedSubmission.Progress != 50 || savedSubmission.EgressScope != "grok_web_submit" || savedSubmission.Diagnostics.Current() == nil || savedSubmission.Diagnostics.Current().Request != "video_submit" {
+		t.Fatalf("submission timeline was not saved: progress=%d scope=%s err=%v", savedSubmission.Progress, savedSubmission.EgressScope, err)
 	}
 	consoleJob := webJob
 	consoleJob.ID = "video_console_ok"

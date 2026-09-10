@@ -34,11 +34,29 @@ func TestVideoDiagnosticFailurePreservesStageAndRedactsSecrets(t *testing.T) {
 type videoDiagnosticsWriteRecorder struct {
 	repository.MediaJobRepository
 	dirtyWrites []bool
+	err         error
 }
 
 func (r *videoDiagnosticsWriteRecorder) UpdateMediaJob(_ context.Context, job media.Job) error {
 	r.dirtyWrites = append(r.dirtyWrites, job.DiagnosticsDirty)
-	return nil
+	return r.err
+}
+
+func TestVideoDiagnosticsRetainsDirtyHistoryAfterWriteFailure(t *testing.T) {
+	repo := &videoDiagnosticsWriteRecorder{err: errors.New("temporary database failure")}
+	service := &Service{mediaJobs: repo}
+	service.UpdateVideoDiagnosticsEnabled(true)
+	job := media.Job{ID: "test"}
+	service.recordVideoStep(context.Background(), &job, "http_wait_headers", 0, 0)
+	if !job.DiagnosticsDirty {
+		t.Fatal("failed write discarded pending history")
+	}
+	repo.err = nil
+	job.UpdatedAt = time.Now().Add(-16 * time.Second)
+	service.recordVideoStep(context.Background(), &job, "http_wait_headers", 0, 0)
+	if job.DiagnosticsDirty || len(repo.dirtyWrites) != 2 || !repo.dirtyWrites[1] {
+		t.Fatalf("history was not retried: %#v", repo.dirtyWrites)
+	}
 }
 
 func TestVideoDiagnosticsSwitchStopsWritesAndCanResume(t *testing.T) {
@@ -74,5 +92,27 @@ func TestVideoDiagnosticsSwitchStopsWritesAndCanResume(t *testing.T) {
 	service.recordVideoStep(context.Background(), &job, "wait_generation", 0, 0)
 	if len(repo.dirtyWrites) != 3 || !repo.dirtyWrites[2] || job.Diagnostics.Current().Stage != "wait_generation" {
 		t.Fatal("recording did not resume")
+	}
+}
+
+func TestVideoNetworkEventsPreserveCaptureTimeAndRedactErrors(t *testing.T) {
+	repo := &videoDiagnosticsWriteRecorder{}
+	service := &Service{mediaJobs: repo}
+	service.UpdateVideoDiagnosticsEnabled(true)
+	job := media.Job{ID: "test", AccountID: 7, AccountName: "test-account"}
+	captured := time.Now().UTC().Add(-time.Second)
+	deadline := captured.Add(15 * time.Second)
+	service.recordVideoEvent(context.Background(), &job, media.VideoEvent{
+		Stage: "http_headers", StartedAt: captured, Request: "statsig_sign_url", HTTPStatus: 503, DeadlineAt: &deadline,
+		Error: "signer failed: https://private.example/?key=secret-query Cookie: sso=secret-cookie",
+	})
+	event := job.Diagnostics.Current()
+	if !event.StartedAt.Equal(captured) || event.HTTPStatus != 503 || event.AccountID != 7 || event.Request != "statsig_sign_url" || event.DeadlineAt == nil {
+		t.Fatalf("network event = %#v", event)
+	}
+	for _, secret := range []string{"private.example", "secret-query", "secret-cookie"} {
+		if strings.Contains(event.Error, secret) {
+			t.Fatalf("network event leaked %q", secret)
+		}
 	}
 }

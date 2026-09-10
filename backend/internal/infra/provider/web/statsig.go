@@ -76,8 +76,10 @@ func (s *statsigSigner) Sign(ctx context.Context, baseURL, signerURL, token stri
 		return "", "", err
 	}
 	if value, ok := s.cached(key, s.now().UTC()); ok {
+		reportVideoRequest(ctx, "statsig_cache", 0, nil)
 		return value, "cache", nil
 	}
+	reportVideoRequest(ctx, "statsig_wait", 0, nil)
 	value, err, _ := s.refreshes.Do(key, func() (any, error) {
 		now := s.now().UTC()
 		if cached, ok := s.cached(key, now); ok {
@@ -86,6 +88,7 @@ func (s *statsigSigner) Sign(ctx context.Context, baseURL, signerURL, token stri
 		fresh, refreshErr := s.freshSignature(ctx, baseURL, signerURL, token, lease, method, path)
 		if refreshErr != nil {
 			if stale, ok := s.stale(key); ok {
+				reportVideoRequest(ctx, "statsig_stale", 0, refreshErr)
 				return statsigSignResult{value: stale, source: "stale"}, nil
 			}
 			return statsigSignResult{}, refreshErr
@@ -143,6 +146,7 @@ func (s *statsigSigner) Warm(ctx context.Context, baseURL, signerURL, token stri
 }
 
 func (s *statsigSigner) freshSignature(ctx context.Context, baseURL, signerURL, token string, lease *infraegress.Lease, method, path string) (string, error) {
+	reportVideoRequest(ctx, "statsig_meta", 0, nil)
 	meta, err := s.fetchMeta(ctx, baseURL, token, lease)
 	if err != nil {
 		return "", err
@@ -156,9 +160,11 @@ func (s *statsigSigner) freshSignature(ctx context.Context, baseURL, signerURL, 
 		return signature, nil
 	}
 	if signature, localErr := signStatsigWithMeta(method, path, meta, nowUnix); localErr == nil {
+		reportVideoRequest(ctx, "statsig_local_fallback", 0, err)
 		return signature, nil
 	}
 
+	reportVideoRequest(ctx, "statsig_retry", 0, err)
 	meta, refreshErr := s.fetchMeta(ctx, baseURL, token, lease)
 	if refreshErr != nil {
 		return "", fmt.Errorf("刷新 Statsig metaContent: %w", refreshErr)
@@ -166,6 +172,7 @@ func (s *statsigSigner) freshSignature(ctx context.Context, baseURL, signerURL, 
 	signature, retryErr := s.requestSignature(ctx, signerURL, method, path, meta)
 	if retryErr != nil {
 		if signature, localErr := signStatsigWithMeta(method, path, meta, nowUnix); localErr == nil {
+			reportVideoRequest(ctx, "statsig_local_fallback", 0, retryErr)
 			return signature, nil
 		}
 		return "", fmt.Errorf("Statsig 签名失败: %w", retryErr)
@@ -241,6 +248,13 @@ func statsigSignatureKey(baseURL, signerURL, method, target string) (string, str
 }
 
 func (s *statsigSigner) requestSignature(ctx context.Context, endpoint, method, path, metaContent string) (string, error) {
+	if s.client.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.client.Timeout)
+		defer cancel()
+	}
+	ctx = withVideoRequest(ctx, "statsig_sign_url", nil)
+	reportVideoRequest(ctx, "statsig_sign_url", 0, nil)
 	if err := s.validateEndpoint(ctx, endpoint); err != nil {
 		return "", err
 	}
@@ -256,11 +270,12 @@ func (s *statsigSigner) requestSignature(ctx context.Context, endpoint, method, 
 		return "", err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := s.client.Do(request)
+	response, err := doVideoHTTP(request, s.client.Do)
 	if err != nil {
 		return "", err
 	}
 	defer response.Body.Close()
+	reportVideoRequest(ctx, "http_read_body", response.StatusCode, nil)
 	body, err := io.ReadAll(io.LimitReader(response.Body, statsigResponseLimit+1))
 	if err != nil {
 		return "", err
@@ -332,8 +347,14 @@ type statsigMetaResponse struct {
 }
 
 func fetchStatsigMetaResponse(ctx context.Context, baseURL, token string, lease *infraegress.Lease, path string, do func(*http.Request) (*http.Response, error)) (statsigMetaResponse, error) {
+	operation := "statsig_meta_index"
+	if path == "/" {
+		operation = "statsig_meta_root"
+	}
+	ctx = withVideoRequest(ctx, operation, lease)
 	requestCtx, cancel := context.WithTimeout(infraegress.WithPhysicalCallStage(ctx, "statsig_meta"), 15*time.Second)
 	defer cancel()
+	reportVideoRequest(requestCtx, operation, 0, nil)
 	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, strings.TrimRight(baseURL, "/")+path, nil)
 	if err != nil {
 		return statsigMetaResponse{}, err
@@ -351,11 +372,12 @@ func fetchStatsigMetaResponse(ctx context.Context, baseURL, token string, lease 
 		request.Header.Set("User-Agent", lease.UserAgent)
 		request.Header.Set("Cookie", infraegress.BuildSSOCookie(token, lease.CFCookies))
 	}
-	response, err := do(request)
+	response, err := doVideoHTTP(request, do)
 	if err != nil {
 		return statsigMetaResponse{}, err
 	}
 	defer response.Body.Close()
+	reportVideoRequest(requestCtx, "http_read_body", response.StatusCode, nil)
 	body, err := io.ReadAll(io.LimitReader(response.Body, statsigMetaBodyLimit+1))
 	if err != nil {
 		return statsigMetaResponse{}, err
@@ -437,6 +459,7 @@ func (a *Adapter) applySignedStatsig(ctx context.Context, request *http.Request,
 		return nil
 	}
 	cfg := a.config()
+	reportVideoRequest(ctx, "statsig_prepare", 0, nil)
 	request.Header.Del("x-statsig-id")
 	if cfg.StatsigMode == "builtin" {
 		if a.builtinStatsig != nil {
@@ -474,8 +497,10 @@ func (a *Adapter) applySignedStatsig(ctx context.Context, request *http.Request,
 			return nil
 		}
 		a.log().Warn("web_statsig_fetch_failed", "method", request.Method, "path", request.URL.EscapedPath(), "error", err)
+		reportVideoRequest(ctx, "statsig_remote_failed", 0, err)
 	}
 	if value, err := generateLocalStatsig(request.Method, request.URL.EscapedPath(), nowUnix); err == nil {
+		reportVideoRequest(ctx, "statsig_local_fallback", 0, nil)
 		request.Header.Set("x-statsig-id", value)
 		return nil
 	} else {

@@ -413,6 +413,8 @@ Egress nodes are scoped to Build, Web, Web submissions, Console, Web assets, or 
 
 `Grok Web (submission only)` proxies chat connections and video generation submissions, including video extensions. Attachment uploads, image generation, media downloads, account queries, and video status polling are excluded. Accounts bound to these nodes use direct connections for other Web requests. Unbound accounts prefer this scope for submissions and retain their normal routing for other requests. Without submission nodes, existing Web routing and fallback policies remain in effect.
 
+When video task logging is enabled, the timeline separates submission egress preparation, Statsig cache or concurrent refresh waits, Grok page fetches, URL signer calls, connection acquisition, request transmission, response-header waits, and body reads. Events show millisecond durations, selected egress, HTTP status, and the active request deadline. Signatures, cookies, proxy credentials, and request bodies are excluded. Startup migration also permits `grok_web_submit` in video job records so progress and diagnostics can be persisted.
+
 The admin console supports:
 
 - HTTP, HTTPS, SOCKS4/4A, SOCKS5/5H, Resin, Trojan, VLESS, Shadowsocks, and VMess

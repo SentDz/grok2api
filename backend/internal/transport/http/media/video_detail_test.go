@@ -38,6 +38,9 @@ func TestVideoDetailReturnsDiagnosticsWithoutPrivateInput(t *testing.T) {
 	job := mediadomain.Job{ID: "video-detail", RequestID: "request-1", Status: mediadomain.StatusInProgress, Progress: 1,
 		CreatedAt: now, UpdatedAt: now, InputJSON: "private-input", UpstreamURL: "private-upstream", ClaimToken: "private-claim"}
 	job.Diagnostics.Advance(mediadomain.VideoEvent{Stage: "upload_image", StartedAt: now, ItemIndex: 2, ItemTotal: 3})
+	deadline := now.Add(15 * time.Second)
+	job.Diagnostics.Advance(mediadomain.VideoEvent{Stage: "http_headers", Request: "statsig_meta_index", StartedAt: now,
+		HTTPStatus: 404, EgressNodeID: 7, EgressNodeName: "submission-proxy", EgressScope: "grok_web_submit", EgressMode: "proxy", DeadlineAt: &deadline})
 	for _, test := range []struct {
 		name, id string
 		repo     videoDetailRepository
@@ -70,8 +73,12 @@ func TestVideoDetailReturnsDiagnosticsWithoutPrivateInput(t *testing.T) {
 				if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
 					t.Fatal(err)
 				}
-				if payload.Data.Diagnostics.Current() == nil || payload.Data.Diagnostics.Current().Stage != "upload_image" || payload.Data.Progress != 1 || payload.Data.RequestID != "request-1" || w.Header().Get("Cache-Control") != "no-store" {
+				if payload.Data.Diagnostics.Current() == nil || payload.Data.Diagnostics.Current().Stage != "http_headers" || payload.Data.Progress != 1 || payload.Data.RequestID != "request-1" || w.Header().Get("Cache-Control") != "no-store" {
 					t.Fatalf("detail = %#v", payload.Data)
+				}
+				event := payload.Data.Diagnostics.Current()
+				if event.HTTPStatus != 404 || event.Request != "statsig_meta_index" || event.EgressNodeID != 7 || event.DeadlineAt == nil {
+					t.Fatalf("network details = %#v", event)
 				}
 			}
 			public := httptest.NewRecorder()

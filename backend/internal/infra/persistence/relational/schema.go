@@ -555,7 +555,7 @@ func (d *Database) ensureMediaJobConstraints(ctx context.Context) error {
 	}
 	if err := d.ensureNamedConstraints(ctx, []consoleConstraint{
 		{model: &mediaJobModel{}, table: "media_jobs", name: "chk_media_jobs_egress_scope"},
-	}, "grok_console"); err != nil {
+	}, "grok_web_submit"); err != nil {
 		return err
 	}
 	for _, constraint := range []consoleConstraint{

@@ -11,6 +11,7 @@ import {
   isOneOf,
   isArrayOf,
   isBoolean,
+  isOptional,
 } from "@/shared/api/decoder";
 import type { SortOrder } from "@/shared/lib/table-sort";
 
@@ -102,6 +103,8 @@ const videoTaskEventShape = hasShape({
   stage: isString, startedAt: isString, finishedAt: nullableString,
   attempt: isNumber, accountId: isNumber, accountName: isString,
   itemIndex: isNumber, itemTotal: isNumber, error: isString, httpStatus: isNumber,
+  request: isOptional(isString), egressNodeId: isOptional(isNumber), egressNodeName: isOptional(isString),
+  egressScope: isOptional(isString), egressMode: isOptional(isString), deadlineAt: isOptional(isString),
 });
 const decodeVideoDetail = createObjectDecoder<VideoJobDetailDTO>("video detail", {
   ...mediaJobShape,

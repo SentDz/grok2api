@@ -1658,6 +1658,16 @@ func (a *Adapter) postJSON(ctx context.Context, cfg Config, lease *egress.Lease,
 }
 
 func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *egress.Lease, token, endpoint string, payload any, timeout time.Duration, referer string) (*http.Response, error) {
+	operation := ""
+	switch endpoint {
+	case cfg.BaseURL + "/rest/app-chat/conversations/new":
+		operation = "video_submit"
+	case cfg.BaseURL + "/rest/media/post/create":
+		operation = "media_post_create"
+	case cfg.BaseURL + "/rest/media/post/get":
+		operation = "video_poll"
+	}
+	ctx = withVideoRequest(ctx, operation, lease)
 	data, _ := json.Marshal(payload)
 	for attempt := 0; attempt < 2; attempt++ {
 		requestCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -1675,12 +1685,14 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 			cancel()
 			return nil, err
 		}
-		response, err := lease.DoDeferredForbidden(request)
+		reportVideoRequest(requestCtx, "statsig_ready", 0, nil)
+		response, err := doVideoHTTP(request, lease.DoDeferredForbidden)
 		if err != nil {
 			cancel()
 			return nil, err
 		}
 		if response.StatusCode == http.StatusForbidden {
+			reportVideoRequest(requestCtx, "http_read_body", response.StatusCode, nil)
 			body, readErr := io.ReadAll(io.LimitReader(response.Body, webMediaDiagnosticBodyLimit+1))
 			_ = response.Body.Close()
 			cancel()
@@ -1705,6 +1717,7 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 			// the current Clearance lease remains valid.
 			if isStatsigRefreshableMediaError(upstreamErr, body) {
 				if attempt == 0 && a.invalidateSignedStatsig(http.MethodPost, endpoint) {
+					reportVideoRequest(ctx, "statsig_retry", response.StatusCode, nil)
 					continue
 				}
 				return response, nil
@@ -1714,7 +1727,11 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 			if upstreamErr.bodyKind == "json" || attempt > 0 || !a.invalidateSignedStatsig(http.MethodPost, endpoint) {
 				return response, nil
 			}
+			reportVideoRequest(ctx, "statsig_retry", response.StatusCode, nil)
 			continue
+		}
+		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices || operation != "video_submit" {
+			reportVideoRequest(requestCtx, "http_read_body", response.StatusCode, nil)
 		}
 		response.Body = &cancelBody{ReadCloser: response.Body, cancel: cancel}
 		return response, nil

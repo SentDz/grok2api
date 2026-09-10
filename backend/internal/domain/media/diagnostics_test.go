@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+func TestVideoDiagnosticsReadErrorPreservesObservedHTTPStatus(t *testing.T) {
+	var d VideoDiagnostics
+	now := time.Now().UTC()
+	d.Advance(VideoEvent{Stage: "http_read_body", HTTPStatus: 403, StartedAt: now})
+	d.Fail("response body timed out", 0, now.Add(time.Second))
+	if d.Current().HTTPStatus != 403 || d.Current().Error == "" {
+		t.Fatalf("lost response status: %#v", d.Current())
+	}
+}
+
 func TestVideoDiagnosticsKeepsFailuresAcrossRetriesAndBoundsHistory(t *testing.T) {
 	var d VideoDiagnostics
 	now := time.Now().UTC()

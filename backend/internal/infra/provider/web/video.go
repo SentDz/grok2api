@@ -318,12 +318,14 @@ func (a *Adapter) generateLegacyVideo(ctx context.Context, request provider.Vide
 		resolution = "720p"
 	}
 	payload := videoCreatePayload(request.Prompt, parentID, ratio, resolution, segments[0], references)
-	provider.ReportVideoStep(ctx, "submit_video")
+	provider.ReportVideoStep(ctx, "acquire_submit_egress")
 	submitLease, err := a.egress.AcquireCredential(ctx, domainegress.ScopeWebSubmit, request.Credential)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
 	defer submitLease.Release()
+	ctx = withVideoRequest(ctx, "video_submit", submitLease)
+	reportVideoRequest(ctx, "submit_egress_ready", 0, nil)
 	response, err := a.postJSON(ctx, cfg, submitLease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
@@ -414,12 +416,14 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 	if parentID != "" {
 		referer = cfg.BaseURL + "/imagine/post/" + parentID
 	}
-	provider.ReportVideoStep(ctx, "submit_video")
+	provider.ReportVideoStep(ctx, "acquire_submit_egress")
 	submitLease, err := a.egress.AcquireCredential(ctx, domainegress.ScopeWebSubmit, request.Credential)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
 	defer submitLease.Release()
+	ctx = withVideoRequest(ctx, "video_submit", submitLease)
+	reportVideoRequest(ctx, "submit_egress_ready", 0, nil)
 	response, err := a.postJSONWithReferer(ctx, cfg, submitLease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second, referer)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
@@ -457,12 +461,14 @@ func (a *Adapter) extendVideoV15(ctx context.Context, cfg Config, lease *egress.
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 	}
 	payload := videoExtensionPayload(request.Prompt, postID, request.Duration, request.VideoExtensionStartTime)
-	provider.ReportVideoStep(ctx, "submit_video")
+	provider.ReportVideoStep(ctx, "acquire_submit_egress")
 	submitLease, err := a.egress.AcquireCredential(ctx, domainegress.ScopeWebSubmit, request.Credential)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
 	defer submitLease.Release()
+	ctx = withVideoRequest(ctx, "video_submit", submitLease)
+	reportVideoRequest(ctx, "submit_egress_ready", 0, nil)
 	response, err := a.postJSONWithReferer(
 		ctx,
 		cfg,

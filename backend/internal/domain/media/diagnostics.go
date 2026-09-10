@@ -9,16 +9,22 @@ type VideoDiagnostics struct {
 }
 
 type VideoEvent struct {
-	Stage       string     `json:"stage"`
-	StartedAt   time.Time  `json:"startedAt"`
-	FinishedAt  *time.Time `json:"finishedAt"`
-	Attempt     int        `json:"attempt"`
-	AccountID   uint64     `json:"accountId"`
-	AccountName string     `json:"accountName"`
-	ItemIndex   int        `json:"itemIndex"`
-	ItemTotal   int        `json:"itemTotal"`
-	Error       string     `json:"error"`
-	HTTPStatus  int        `json:"httpStatus"`
+	Stage          string     `json:"stage"`
+	StartedAt      time.Time  `json:"startedAt"`
+	FinishedAt     *time.Time `json:"finishedAt"`
+	Attempt        int        `json:"attempt"`
+	AccountID      uint64     `json:"accountId"`
+	AccountName    string     `json:"accountName"`
+	ItemIndex      int        `json:"itemIndex"`
+	ItemTotal      int        `json:"itemTotal"`
+	Error          string     `json:"error"`
+	HTTPStatus     int        `json:"httpStatus"`
+	Request        string     `json:"request,omitempty"`
+	EgressNodeID   uint64     `json:"egressNodeId,omitempty"`
+	EgressNodeName string     `json:"egressNodeName,omitempty"`
+	EgressScope    string     `json:"egressScope,omitempty"`
+	EgressMode     string     `json:"egressMode,omitempty"`
+	DeadlineAt     *time.Time `json:"deadlineAt,omitempty"`
 }
 
 func (d *VideoDiagnostics) Current() *VideoEvent {
@@ -30,7 +36,7 @@ func (d *VideoDiagnostics) Current() *VideoEvent {
 
 func (d *VideoDiagnostics) Advance(event VideoEvent) bool {
 	if current := d.Current(); current != nil {
-		if current.FinishedAt == nil && current.Stage == event.Stage && current.Attempt == event.Attempt && current.ItemIndex == event.ItemIndex && current.ItemTotal == event.ItemTotal {
+		if current.FinishedAt == nil && current.Stage == event.Stage && current.Attempt == event.Attempt && current.ItemIndex == event.ItemIndex && current.ItemTotal == event.ItemTotal && current.Request == event.Request && current.HTTPStatus == event.HTTPStatus && current.Error == event.Error && current.EgressNodeID == event.EgressNodeID {
 			return false
 		}
 		if current.FinishedAt == nil {
@@ -46,6 +52,9 @@ func (d *VideoDiagnostics) Advance(event VideoEvent) bool {
 
 func (d *VideoDiagnostics) Fail(message string, status int, now time.Time) {
 	if current := d.Current(); current != nil && current.Error == "" {
-		current.Error, current.HTTPStatus, current.FinishedAt = message, status, &now
+		current.Error, current.FinishedAt = message, &now
+		if status != 0 {
+			current.HTTPStatus = status
+		}
 	}
 }
