@@ -52,6 +52,7 @@ type gatewaySender struct {
 type gatewayOpenOptions struct {
 	enforceStreamIdle bool
 	deferForbidden    bool
+	submissionOnly    bool
 }
 
 func (s *gatewaySender) write(value any) error {
@@ -96,6 +97,13 @@ func (a *Adapter) openGatewayChat(ctx context.Context, credential account.Creden
 	if err != nil {
 		lease.Release()
 		return nil, nil, nil, "", err
+	}
+	if options.submissionOnly {
+		lease.Release()
+		lease, err = a.egress.AcquireCredential(ctx, domainegress.ScopeWebSubmit, credential)
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
 	}
 	endpoint, origin, err := gatewayEndpoint(cfg.BaseURL, userID)
 	if err != nil {

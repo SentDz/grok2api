@@ -8,6 +8,11 @@ func TestSupportsScopePreservesPrimaryAndResourceCompatibility(t *testing.T) {
 		nodeScope, request Scope
 		want               bool
 	}{
+		{name: "Web serves submission", nodeScope: ScopeWeb, request: ScopeWebSubmit, want: true},
+		{name: "submission serves submission", nodeScope: ScopeWebSubmit, request: ScopeWebSubmit, want: true},
+		{name: "submission excludes uploads", nodeScope: ScopeWebSubmit, request: ScopeWeb, want: false},
+		{name: "submission excludes downloads", nodeScope: ScopeWebSubmit, request: ScopeWebAsset, want: false},
+		{name: "submission excludes Console", nodeScope: ScopeWebSubmit, request: ScopeConsole, want: false},
 		{name: "exact Console asset", nodeScope: ScopeConsoleAsset, request: ScopeConsoleAsset, want: true},
 		{name: "Console serves Console asset", nodeScope: ScopeConsole, request: ScopeConsoleAsset, want: true},
 		{name: "Web serves Console asset", nodeScope: ScopeWeb, request: ScopeConsoleAsset, want: true},

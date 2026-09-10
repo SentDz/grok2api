@@ -9,7 +9,7 @@ import (
 )
 
 func applyAuditEgress(record *audit.Record, trace *infraegress.Trace, provider accountdomain.Provider) {
-	selection, ok := trace.Selection(primaryEgressScope(provider))
+	selection, ok := primaryEgressSelection(trace, provider)
 	if !ok {
 		return
 	}
@@ -27,7 +27,7 @@ func applyAuditEgress(record *audit.Record, trace *infraegress.Trace, provider a
 }
 
 func applyMediaJobEgress(job *media.Job, trace *infraegress.Trace, provider accountdomain.Provider) {
-	selection, ok := trace.Selection(primaryEgressScope(provider))
+	selection, ok := primaryEgressSelection(trace, provider)
 	if !ok {
 		return
 	}
@@ -41,6 +41,15 @@ func applyMediaJobEgress(job *media.Job, trace *infraegress.Trace, provider acco
 		id := selection.NodeID
 		job.EgressNodeID = &id
 	}
+}
+
+func primaryEgressSelection(trace *infraegress.Trace, provider accountdomain.Provider) (infraegress.Selection, bool) {
+	if provider == accountdomain.ProviderWeb {
+		if selection, ok := trace.Selection(egressdomain.ScopeWebSubmit); ok {
+			return selection, true
+		}
+	}
+	return trace.Selection(primaryEgressScope(provider))
 }
 
 func primaryEgressScope(provider accountdomain.Provider) egressdomain.Scope {

@@ -261,6 +261,8 @@ export function AccountsPage() {
   // Filter choices are loaded only when the third-level menu opens. Nodes and
   // subscription sources use bounded pages so large pools do not flood the page.
   const egressFilterPrimaryScope = accountProviderPrimaryEgressScope(provider);
+  const egressFilterSecondaryScope: EgressScope = provider === "grok_web" ? "grok_web_submit" : "grok_web";
+  const secondaryEgressEnabled = provider === "grok_web" || provider === "grok_console";
   const egressFilterNodesQuery = useInfiniteQuery({
     queryKey: ["egress-nodes", "account-filter", egressFilterPrimaryScope, debouncedEgressFilterOptionsSearch],
     queryFn: ({ pageParam }) => listEgressNodes({
@@ -274,20 +276,19 @@ export function AccountsPage() {
     enabled: egressFilterOptionsOpen,
     staleTime: 60_000,
   });
-  // Console routing supports both native Console exits and Grok Web exits. Keep
-  // the second scope independently paginated so unrelated Build/asset nodes can
-  // never consume the Console result pages.
-  const egressFilterConsoleWebNodesQuery = useInfiniteQuery({
-    queryKey: ["egress-nodes", "account-filter", "console-web", debouncedEgressFilterOptionsSearch],
+  // Independently paginate compatible secondary scopes: Web submission nodes
+  // for Web accounts, and shared Web nodes for Console accounts.
+  const egressFilterSecondaryNodesQuery = useInfiniteQuery({
+    queryKey: ["egress-nodes", "account-filter", "secondary", egressFilterSecondaryScope, debouncedEgressFilterOptionsSearch],
     queryFn: ({ pageParam }) => listEgressNodes({
       page: pageParam,
       pageSize: egressFilterNodePageSize,
       search: debouncedEgressFilterOptionsSearch,
-      scope: "grok_web",
+      scope: egressFilterSecondaryScope,
     }),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.page * lastPage.pageSize < lastPage.total ? lastPage.page + 1 : undefined,
-    enabled: egressFilterOptionsOpen && provider === "grok_console",
+    enabled: egressFilterOptionsOpen && secondaryEgressEnabled,
     staleTime: 60_000,
   });
   const egressFilterSourcesQuery = useInfiniteQuery({
@@ -303,17 +304,17 @@ export function AccountsPage() {
     enabled: egressFilterOptionsOpen,
     staleTime: 60_000,
   });
-  const egressFilterConsoleWebSourcesQuery = useInfiniteQuery({
-    queryKey: ["egress-sources", "account-filter", "console-web", debouncedEgressFilterOptionsSearch],
+  const egressFilterSecondarySourcesQuery = useInfiniteQuery({
+    queryKey: ["egress-sources", "account-filter", "secondary", egressFilterSecondaryScope, debouncedEgressFilterOptionsSearch],
     queryFn: ({ pageParam }) => listEgressSources({
       page: pageParam,
       pageSize: egressFilterSourcePageSize,
       search: debouncedEgressFilterOptionsSearch,
-      scope: "grok_web",
+      scope: egressFilterSecondaryScope,
     }),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.page * lastPage.pageSize < lastPage.total ? lastPage.page + 1 : undefined,
-    enabled: egressFilterOptionsOpen && provider === "grok_console",
+    enabled: egressFilterOptionsOpen && secondaryEgressEnabled,
     staleTime: 60_000,
   });
 
@@ -1215,36 +1216,35 @@ export function AccountsPage() {
   const hasProviderAccounts = providerAccountTotal > 0 || (result?.total ?? 0) > 0;
   const bindableEgressNodes = (egressNodesQuery.data?.items ?? []).filter((node) => node.enabled && node.proxyConfigured && scopeSupportsAccountProvider(node.scope, provider));
   const egressFilterSearchTerm = egressFilterOptionsSearch.trim().toLocaleLowerCase();
-  const consoleWebNodePages = provider === "grok_console" ? (egressFilterConsoleWebNodesQuery.data?.pages ?? []) : [];
-  const scopedEgressNodes = [...(egressFilterNodesQuery.data?.pages ?? []), ...consoleWebNodePages]
+  const secondaryEgressNodePages = secondaryEgressEnabled ? (egressFilterSecondaryNodesQuery.data?.pages ?? []) : [];
+  const scopedEgressNodes = [...(egressFilterNodesQuery.data?.pages ?? []), ...secondaryEgressNodePages]
     .flatMap((nodePage) => nodePage.items)
     .filter((node) => scopeSupportsAccountProvider(node.scope, provider))
     .filter((node) => !egressFilterSearchTerm || node.name.toLocaleLowerCase().includes(egressFilterSearchTerm));
-  const consoleWebNodesEnabled = provider === "grok_console";
-  const consoleWebSourcePages = consoleWebNodesEnabled ? (egressFilterConsoleWebSourcesQuery.data?.pages ?? []) : [];
-  const scopedEgressSources = [...(egressFilterSourcesQuery.data?.pages ?? []), ...consoleWebSourcePages]
+  const secondaryEgressSourcePages = secondaryEgressEnabled ? (egressFilterSecondarySourcesQuery.data?.pages ?? []) : [];
+  const scopedEgressSources = [...(egressFilterSourcesQuery.data?.pages ?? []), ...secondaryEgressSourcePages]
     .flatMap((sourcePage) => sourcePage.items)
     .filter((source) => scopeSupportsAccountProvider(source.scope, provider))
     .filter((source) => !egressFilterSearchTerm || source.name.toLocaleLowerCase().includes(egressFilterSearchTerm));
-  const egressFilterNodesFailed = egressFilterNodesQuery.isError || (consoleWebNodesEnabled && egressFilterConsoleWebNodesQuery.isError);
-  const egressFilterNodesFetching = egressFilterNodesQuery.isFetching || (consoleWebNodesEnabled && egressFilterConsoleWebNodesQuery.isFetching);
-  const egressFilterNodesHaveMore = egressFilterNodesFailed || egressFilterNodesQuery.hasNextPage || (consoleWebNodesEnabled && egressFilterConsoleWebNodesQuery.hasNextPage);
+  const egressFilterNodesFailed = egressFilterNodesQuery.isError || (secondaryEgressEnabled && egressFilterSecondaryNodesQuery.isError);
+  const egressFilterNodesFetching = egressFilterNodesQuery.isFetching || (secondaryEgressEnabled && egressFilterSecondaryNodesQuery.isFetching);
+  const egressFilterNodesHaveMore = egressFilterNodesFailed || egressFilterNodesQuery.hasNextPage || (secondaryEgressEnabled && egressFilterSecondaryNodesQuery.hasNextPage);
   const loadMoreEgressFilterNodes = () => {
     if (egressFilterNodesQuery.isError) void egressFilterNodesQuery.refetch();
-    if (consoleWebNodesEnabled && egressFilterConsoleWebNodesQuery.isError) void egressFilterConsoleWebNodesQuery.refetch();
+    if (secondaryEgressEnabled && egressFilterSecondaryNodesQuery.isError) void egressFilterSecondaryNodesQuery.refetch();
     if (egressFilterNodesFailed) return;
     if (egressFilterNodesQuery.hasNextPage) void egressFilterNodesQuery.fetchNextPage();
-    if (consoleWebNodesEnabled && egressFilterConsoleWebNodesQuery.hasNextPage) void egressFilterConsoleWebNodesQuery.fetchNextPage();
+    if (secondaryEgressEnabled && egressFilterSecondaryNodesQuery.hasNextPage) void egressFilterSecondaryNodesQuery.fetchNextPage();
   };
-  const egressFilterSourcesFailed = egressFilterSourcesQuery.isError || (consoleWebNodesEnabled && egressFilterConsoleWebSourcesQuery.isError);
-  const egressFilterSourcesFetching = egressFilterSourcesQuery.isFetching || (consoleWebNodesEnabled && egressFilterConsoleWebSourcesQuery.isFetching);
-  const egressFilterSourcesHaveMore = egressFilterSourcesFailed || egressFilterSourcesQuery.hasNextPage || (consoleWebNodesEnabled && egressFilterConsoleWebSourcesQuery.hasNextPage);
+  const egressFilterSourcesFailed = egressFilterSourcesQuery.isError || (secondaryEgressEnabled && egressFilterSecondarySourcesQuery.isError);
+  const egressFilterSourcesFetching = egressFilterSourcesQuery.isFetching || (secondaryEgressEnabled && egressFilterSecondarySourcesQuery.isFetching);
+  const egressFilterSourcesHaveMore = egressFilterSourcesFailed || egressFilterSourcesQuery.hasNextPage || (secondaryEgressEnabled && egressFilterSecondarySourcesQuery.hasNextPage);
   const loadMoreEgressFilterSources = () => {
     if (egressFilterSourcesQuery.isError) void egressFilterSourcesQuery.refetch();
-    if (consoleWebNodesEnabled && egressFilterConsoleWebSourcesQuery.isError) void egressFilterConsoleWebSourcesQuery.refetch();
+    if (secondaryEgressEnabled && egressFilterSecondarySourcesQuery.isError) void egressFilterSecondarySourcesQuery.refetch();
     if (egressFilterSourcesFailed) return;
     if (egressFilterSourcesQuery.hasNextPage) void egressFilterSourcesQuery.fetchNextPage();
-    if (consoleWebNodesEnabled && egressFilterConsoleWebSourcesQuery.hasNextPage) void egressFilterConsoleWebSourcesQuery.fetchNextPage();
+    if (secondaryEgressEnabled && egressFilterSecondarySourcesQuery.hasNextPage) void egressFilterSecondarySourcesQuery.fetchNextPage();
   };
   const egressBoundGroups = [
     {
@@ -2316,7 +2316,7 @@ function downloadAccountExport(blob: Blob, provider: AccountProvider, suffix: st
 
 function scopeSupportsAccountProvider(scope: EgressScope, provider: AccountProvider): boolean {
   if (provider === "grok_build") return scope === "grok_build";
-  if (provider === "grok_web") return scope === "grok_web";
+  if (provider === "grok_web") return scope === "grok_web" || scope === "grok_web_submit";
   return scope === "grok_web" || scope === "grok_console";
 }
 

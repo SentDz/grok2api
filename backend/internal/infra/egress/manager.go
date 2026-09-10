@@ -829,6 +829,14 @@ func (m *Manager) acquire(ctx context.Context, scope domain.Scope, affinity stri
 				}
 				return m.acquireUnavailableFallback(ctx, scope, affinity, allowDirect, encryptedCredentialCookies, managedClearance, primaryErr)
 			}
+			// Submission-only bindings deliberately bypass all proxies for other
+			// Web operations, including uploads, downloads, and account queries.
+			if selected.Scope == domain.ScopeWebSubmit && (scope == domain.ScopeWeb || scope == domain.ScopeWebAsset) {
+				return m.leaseForNode(ctx, scope, affinity, "", managedClearance, domain.Node{Name: "direct", Scope: scope, Enabled: true, Health: 1})
+			}
+			if scope == domain.ScopeWebSubmit && selected.Scope == domain.ScopeWeb {
+				scope = domain.ScopeWeb
+			}
 			if !domain.SupportsScope(selected.Scope, scope) {
 				return m.acquireUnavailableFallback(ctx, scope, affinity, allowDirect, encryptedCredentialCookies, managedClearance, fmt.Errorf("绑定出口节点 %d 与 %s 作用域不兼容", boundNodeID, scope))
 			}
@@ -865,6 +873,21 @@ func (m *Manager) acquire(ctx context.Context, scope domain.Scope, affinity stri
 			if configuredFallback.Mode == domain.FallbackModeFixed && configuredFallback.NodeID != 0 {
 				reservedFallbackNodes[configuredFallback.NodeID] = struct{}{}
 			}
+		}
+	}
+	if scope == domain.ScopeWebSubmit && fallbackConfigErr == nil && fallback.Mode == domain.FallbackModeNone {
+		nodes, err := m.listNodes(ctx, scope, now)
+		if err != nil {
+			return nil, false, err
+		}
+		configuredSubmit := false
+		for _, node := range nodes {
+			configuredSubmit = configuredSubmit || node.Enabled
+		}
+		// Existing deployments retain their Web fallback policy until they
+		// configure a submission node or a submission-specific fallback.
+		if !configuredSubmit {
+			return m.acquire(ctx, domain.ScopeWeb, affinity, allowDirect, encryptedCredentialCookies, 0)
 		}
 	}
 	for _, candidateScope := range fallbackScopes(scope) {
@@ -1316,6 +1339,9 @@ func (m *Manager) InvalidateOperationsConfig() {
 }
 
 func fallbackScopes(scope domain.Scope) []domain.Scope {
+	if scope == domain.ScopeWebSubmit {
+		return []domain.Scope{domain.ScopeWebSubmit, domain.ScopeWeb}
+	}
 	if scope == domain.ScopeWebAsset {
 		return []domain.Scope{domain.ScopeWebAsset, domain.ScopeWeb}
 	}
@@ -1384,7 +1410,7 @@ func (m *Manager) clientForWithOptions(id uint64, scope domain.Scope, proxyURL, 
 	}
 	fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(clientKind+"\x00"+proxyURL+"\x00"+userAgent+"\x00"+cookies)))
 	cacheScope := scope
-	if cacheScope == domain.ScopeWebAsset {
+	if cacheScope == domain.ScopeWebAsset || cacheScope == domain.ScopeWebSubmit {
 		cacheScope = domain.ScopeWeb
 	}
 	for attempt := 0; attempt < clientCreationRetryLimit; attempt++ {
@@ -2277,11 +2303,11 @@ func (m *Manager) RefreshDueClearances(ctx context.Context, force bool) error {
 }
 
 func isGrokWebScope(scope domain.Scope) bool {
-	return scope == domain.ScopeWeb || scope == domain.ScopeWebAsset || scope == domain.ScopeConsole
+	return scope == domain.ScopeWeb || scope == domain.ScopeWebSubmit || scope == domain.ScopeWebAsset || scope == domain.ScopeConsole
 }
 
 func allEgressScopes() []domain.Scope {
-	return []domain.Scope{domain.ScopeBuild, domain.ScopeWeb, domain.ScopeConsole, domain.ScopeWebAsset, domain.ScopeConsoleAsset}
+	return []domain.Scope{domain.ScopeBuild, domain.ScopeWeb, domain.ScopeWebSubmit, domain.ScopeConsole, domain.ScopeWebAsset, domain.ScopeConsoleAsset}
 }
 
 func (m *Manager) isStickyProxyNode(value domain.Node) bool {
@@ -2311,7 +2337,7 @@ func (m *Manager) invalidateClientLocked(nodeID uint64) []requestClient {
 
 func (m *Manager) invalidateClientForScopeLocked(nodeID uint64, scope domain.Scope) []requestClient {
 	m.invalidateClientVersionLocked(nodeID)
-	if scope == domain.ScopeWebAsset {
+	if scope == domain.ScopeWebAsset || scope == domain.ScopeWebSubmit {
 		scope = domain.ScopeWeb
 	}
 	var stale []requestClient

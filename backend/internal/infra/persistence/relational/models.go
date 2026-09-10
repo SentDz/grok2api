@@ -331,7 +331,7 @@ type requestAuditModel struct {
 	AccountName             string    `gorm:"size:160;check:chk_request_audits_account_name,length(account_name) <= 160"`
 	EgressNodeID            *uint64   `gorm:"check:chk_request_audits_egress_node_id,egress_node_id IS NULL OR egress_node_id > 0"`
 	EgressNodeName          string    `gorm:"size:160;not null;default:'';check:chk_request_audits_egress_node_name,length(egress_node_name) <= 160"`
-	EgressScope             string    `gorm:"size:32;not null;default:'';check:chk_request_audits_egress_scope,egress_scope IN ('','grok_build','grok_web','grok_console','grok_web_asset','grok_console_asset')"`
+	EgressScope             string    `gorm:"size:32;not null;default:'';check:chk_request_audits_egress_scope,egress_scope IN ('','grok_build','grok_web','grok_web_submit','grok_console','grok_web_asset','grok_console_asset')"`
 	EgressMode              string    `gorm:"size:16;not null;default:'';check:chk_request_audits_egress_mode,egress_mode IN ('','direct','proxy')"`
 	StatusCode              int       `gorm:"not null;check:chk_request_audits_status_code,status_code BETWEEN 100 AND 599"`
 	Streaming               bool      `gorm:"not null;default:false"`
@@ -520,7 +520,7 @@ func (runtimeSettingsModel) TableName() string { return "runtime_settings" }
 type egressSubscriptionSourceModel struct {
 	ID                     uint64 `gorm:"primaryKey;autoIncrement"`
 	Name                   string `gorm:"size:160;not null;uniqueIndex;check:chk_egress_subscription_sources_name,length(trim(name)) BETWEEN 1 AND 160"`
-	Scope                  string `gorm:"size:32;not null;check:chk_egress_subscription_sources_scope,scope IN ('grok_build','grok_web','grok_console','grok_web_asset','grok_console_asset')"`
+	Scope                  string `gorm:"size:32;not null;check:chk_egress_subscription_sources_scope,scope IN ('grok_build','grok_web','grok_web_submit','grok_console','grok_web_asset','grok_console_asset')"`
 	Enabled                bool   `gorm:"not null;default:true"`
 	EncryptedURL           string `gorm:"type:text;not null;default:'';check:chk_egress_subscription_sources_url,length(encrypted_url) <= 65536"`
 	EncryptedProxyURL      string `gorm:"type:text;not null;default:'';check:chk_egress_subscription_sources_proxy_url,length(encrypted_proxy_url) <= 65536"`
@@ -549,7 +549,7 @@ func (egressProxyProfileModel) TableName() string { return "egress_proxy_profile
 type egressNodeModel struct {
 	ID                          uint64  `gorm:"primaryKey;autoIncrement"`
 	Name                        string  `gorm:"size:160;not null;check:chk_egress_nodes_name,length(trim(name)) BETWEEN 1 AND 160"`
-	Scope                       string  `gorm:"size:32;not null;check:chk_egress_nodes_specific_scope,scope IN ('grok_build','grok_web','grok_console','grok_web_asset','grok_console_asset')"`
+	Scope                       string  `gorm:"size:32;not null;check:chk_egress_nodes_specific_scope,scope IN ('grok_build','grok_web','grok_web_submit','grok_console','grok_web_asset','grok_console_asset')"`
 	Enabled                     bool    `gorm:"not null;default:true"`
 	ProxyPool                   bool    `gorm:"not null;default:false"`
 	SourceID                    *uint64 `gorm:"uniqueIndex:uidx_egress_nodes_source_key,priority:1;index:idx_egress_nodes_source;constraint:OnUpdate:CASCADE,OnDelete:SET NULL"`
@@ -603,6 +603,8 @@ type egressOperationsConfigModel struct {
 	BuildFallbackNodeID                 uint64    `gorm:"not null;default:0"`
 	WebFallbackMode                     string    `gorm:"size:16;not null;default:none"`
 	WebFallbackNodeID                   uint64    `gorm:"not null;default:0"`
+	WebSubmitFallbackMode               string    `gorm:"size:16;not null;default:none"`
+	WebSubmitFallbackNodeID             uint64    `gorm:"not null;default:0"`
 	ConsoleFallbackMode                 string    `gorm:"size:16;not null;default:none"`
 	ConsoleFallbackNodeID               uint64    `gorm:"not null;default:0"`
 	WebAssetFallbackMode                string    `gorm:"size:16;not null;default:none"`

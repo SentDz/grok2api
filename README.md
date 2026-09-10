@@ -398,7 +398,11 @@ curl http://127.0.0.1:7878/v1/responses \
 
 ## Egress and Cloudflare
 
-Egress nodes are scoped to Build, Web, Console, or Web assets. The admin console supports:
+Egress nodes are scoped to Build, Web, Web submissions, Console, Web assets, or Console assets.
+
+`Grok Web (submission only)` proxies chat connections and video generation submissions, including video extensions. Attachment uploads, image generation, media downloads, account queries, and video status polling are excluded. Accounts bound to these nodes use direct connections for other Web requests. Unbound accounts prefer this scope for submissions and retain their normal routing for other requests. Without submission nodes, existing Web routing and fallback policies remain in effect.
+
+The admin console supports:
 
 - HTTP, HTTPS, SOCKS4/4A, SOCKS5/5H, Resin, Trojan, VLESS, Shadowsocks, and VMess
 - TCP, WebSocket, and TLS tunnel transports; unsupported variants are rejected during import

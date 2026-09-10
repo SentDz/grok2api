@@ -319,7 +319,12 @@ func (a *Adapter) generateLegacyVideo(ctx context.Context, request provider.Vide
 	}
 	payload := videoCreatePayload(request.Prompt, parentID, ratio, resolution, segments[0], references)
 	provider.ReportVideoStep(ctx, "submit_video")
-	response, err := a.postJSON(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second)
+	submitLease, err := a.egress.AcquireCredential(ctx, domainegress.ScopeWebSubmit, request.Credential)
+	if err != nil {
+		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
+	}
+	defer submitLease.Release()
+	response, err := a.postJSON(ctx, cfg, submitLease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 	}
@@ -410,7 +415,12 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 		referer = cfg.BaseURL + "/imagine/post/" + parentID
 	}
 	provider.ReportVideoStep(ctx, "submit_video")
-	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second, referer)
+	submitLease, err := a.egress.AcquireCredential(ctx, domainegress.ScopeWebSubmit, request.Credential)
+	if err != nil {
+		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
+	}
+	defer submitLease.Release()
+	response, err := a.postJSONWithReferer(ctx, cfg, submitLease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second, referer)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 	}
@@ -448,10 +458,15 @@ func (a *Adapter) extendVideoV15(ctx context.Context, cfg Config, lease *egress.
 	}
 	payload := videoExtensionPayload(request.Prompt, postID, request.Duration, request.VideoExtensionStartTime)
 	provider.ReportVideoStep(ctx, "submit_video")
+	submitLease, err := a.egress.AcquireCredential(ctx, domainegress.ScopeWebSubmit, request.Credential)
+	if err != nil {
+		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
+	}
+	defer submitLease.Release()
 	response, err := a.postJSONWithReferer(
 		ctx,
 		cfg,
-		lease,
+		submitLease,
 		token,
 		cfg.BaseURL+"/rest/app-chat/conversations/new",
 		payload,

@@ -15,6 +15,52 @@ import (
 	"github.com/chenyme/grok2api/backend/internal/repository"
 )
 
+func TestWebSubmissionNodeSupportsBindingAndFallbackPersistence(t *testing.T) {
+	ctx := context.Background()
+	database := openTestDatabase(t)
+	accounts := NewAccountRepository(database)
+	nodes := NewEgressRepository(database)
+	cipher := egressOperationsCipher(t)
+	service := egressapp.NewService(nodes, cipher, "test-browser", accounts)
+	proxyURL := "http://submit.example:8080"
+	node, err := service.Create(ctx, egressapp.Input{Name: "submit", Scope: egress.ScopeWebSubmit, Enabled: true, ProxyURL: &proxyURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := createEgressOperationsProviderAccount(t, ctx, accounts, account.ProviderWeb, "web-submit")
+	if _, err := service.AssignAccounts(ctx, node.ID, account.ProviderWeb, []uint64{web.ID}, account.EgressAssignmentManual); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := accounts.Get(ctx, web.ID)
+	if err != nil || stored.EgressNodeID != node.ID {
+		t.Fatalf("binding node=%d err=%v", stored.EgressNodeID, err)
+	}
+	sourceURL := "https://subscription.example/list"
+	if _, err := service.CreateSource(ctx, egressapp.SubscriptionSourceInput{Name: "submit-source", Scope: egress.ScopeWebSubmit, Enabled: true, URL: &sourceURL}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdateOperationsConfig(ctx, egressapp.OperationsConfigInput{
+		ProbeIntervalSeconds: 900, AssignmentIntervalSeconds: 300,
+		Fallbacks: map[egress.Scope]egressapp.FallbackConfigInput{egress.ScopeWebSubmit: {Mode: egress.FallbackModeFixed, NodeID: node.ID}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	config, err := nodes.GetEgressOperationsConfig(ctx)
+	if err != nil || config.FallbackFor(egress.ScopeWebSubmit).NodeID != node.ID {
+		t.Fatalf("persisted submission fallback=%#v err=%v", config.FallbackFor(egress.ScopeWebSubmit), err)
+	}
+	if _, err := service.Update(ctx, node.ID, egressapp.Input{Name: node.Name, Scope: node.Scope, Enabled: false}); !errors.Is(err, egressapp.ErrInvalidInput) {
+		t.Fatalf("disabling fixed submission fallback: %v", err)
+	}
+	if err := service.Delete(ctx, node.ID); err != nil {
+		t.Fatal(err)
+	}
+	config, err = nodes.GetEgressOperationsConfig(ctx)
+	if err != nil || config.FallbackFor(egress.ScopeWebSubmit).Mode != egress.FallbackModeNone {
+		t.Fatalf("deleted submission fallback=%#v err=%v", config.FallbackFor(egress.ScopeWebSubmit), err)
+	}
+}
+
 func TestEgressOperationsAutoAssignRespectsNodeCapacity(t *testing.T) {
 	ctx := context.Background()
 	database := openTestDatabase(t)

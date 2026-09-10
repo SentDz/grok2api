@@ -17,6 +17,7 @@ type Scope string
 const (
 	ScopeBuild        Scope = "grok_build"
 	ScopeWeb          Scope = "grok_web"
+	ScopeWebSubmit    Scope = "grok_web_submit"
 	ScopeConsole      Scope = "grok_console"
 	ScopeWebAsset     Scope = "grok_web_asset"
 	ScopeConsoleAsset Scope = "grok_console_asset"
@@ -259,6 +260,7 @@ func DefaultOperationsConfig() OperationsConfig {
 		Fallbacks: map[Scope]FallbackConfig{
 			ScopeBuild:        {Mode: FallbackModeNone},
 			ScopeWeb:          {Mode: FallbackModeNone},
+			ScopeWebSubmit:    {Mode: FallbackModeNone},
 			ScopeConsole:      {Mode: FallbackModeNone},
 			ScopeWebAsset:     {Mode: FallbackModeNone},
 			ScopeConsoleAsset: {Mode: FallbackModeNone},
@@ -286,7 +288,7 @@ func SupportsScope(nodeScope, requestScope Scope) bool {
 		return true
 	}
 	switch requestScope {
-	case ScopeWebAsset, ScopeConsole:
+	case ScopeWebSubmit, ScopeWebAsset, ScopeConsole:
 		return nodeScope == ScopeWeb
 	case ScopeConsoleAsset:
 		return nodeScope == ScopeConsole || nodeScope == ScopeWeb

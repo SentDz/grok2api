@@ -202,6 +202,7 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
     if (scope === "grok_build") return t("settings.egress.scopeBuild");
     if (scope === "grok_console") return t("console.name");
     if (scope === "grok_web_asset") return t("settings.egress.scopeWebAsset");
+    if (scope === "grok_web_submit") return t("settings.egress.scopeWebSubmit");
     if (scope === "grok_console_asset") return t("settings.egress.scopeConsoleAsset");
     return t("settings.egress.scopeWeb");
   }
@@ -262,6 +263,7 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
                     { value: "grok_web", label: scopeLabel("grok_web") },
                     { value: "grok_console", label: scopeLabel("grok_console") },
                     { value: "grok_web_asset", label: scopeLabel("grok_web_asset") },
+                    { value: "grok_web_submit", label: scopeLabel("grok_web_submit") },
                     { value: "grok_console_asset", label: scopeLabel("grok_console_asset") },
                   ] },
                   { id: "enabled", label: t("settings.egress.enabled"), value: enabledFilter, onChange: (value) => { setEnabledFilter(value); setPage(1); setSelected(new Map()); }, options: [
@@ -332,7 +334,7 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => openEdit(node)}><Pencil />{t("common.edit")}</DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      {clearanceMode !== "manual" && !node.accountBoundProxy && (node.scope === "grok_web" || node.scope === "grok_web_asset" || node.scope === "grok_console") ? <DropdownMenuItem disabled={refreshClearance.isPending} onClick={() => refreshClearance.mutate(node.id)}><RefreshCw />{t("settings.egress.refreshClearance")}</DropdownMenuItem> : null}
+                      {clearanceMode !== "manual" && !node.accountBoundProxy && (node.scope === "grok_web" || node.scope === "grok_web_submit" || node.scope === "grok_web_asset" || node.scope === "grok_console") ? <DropdownMenuItem disabled={refreshClearance.isPending} onClick={() => refreshClearance.mutate(node.id)}><RefreshCw />{t("settings.egress.refreshClearance")}</DropdownMenuItem> : null}
                       <DropdownMenuItem disabled={testNode.isPending || !node.proxyConfigured} onClick={() => testNode.mutate(node.id)}><RefreshCw />{t("settings.egress.test")}</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => remove.mutate(node.id)}><Trash2 />{t("common.delete")}</DropdownMenuItem>
                     </DropdownMenuContent>
@@ -423,6 +425,7 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
                   <SelectItem value="grok_web">{t("settings.egress.scopeWeb")}</SelectItem>
                   <SelectItem value="grok_console">{t("console.name")}</SelectItem>
                   <SelectItem value="grok_web_asset">{t("settings.egress.scopeWebAsset")}</SelectItem>
+                  <SelectItem value="grok_web_submit">{t("settings.egress.scopeWebSubmit")}</SelectItem>
                   <SelectItem value="grok_console_asset">{t("settings.egress.scopeConsoleAsset")}</SelectItem>
                 </SelectContent>
               </Select>
@@ -493,6 +496,7 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
                     <SelectItem value="grok_web">{t("settings.egress.scopeWeb")}</SelectItem>
                     <SelectItem value="grok_console">{t("console.name")}</SelectItem>
                     <SelectItem value="grok_web_asset">{t("settings.egress.scopeWebAsset")}</SelectItem>
+                    <SelectItem value="grok_web_submit">{t("settings.egress.scopeWebSubmit")}</SelectItem>
                     <SelectItem value="grok_console_asset">{t("settings.egress.scopeConsoleAsset")}</SelectItem>
                   </SelectContent>
                 </Select>

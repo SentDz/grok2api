@@ -310,6 +310,8 @@ func migratedProxyProfileScopeName(scope string) string {
 		return "Grok Build"
 	case "grok_web":
 		return "Grok Web"
+	case "grok_web_submit":
+		return "Grok Web Submit"
 	case "grok_console":
 		return "Grok Console"
 	case "grok_web_asset":
@@ -518,13 +520,13 @@ func (d *Database) ensureConsoleConstraints(ctx context.Context) error {
 }
 
 // ensureEgressAssetScopeConstraints upgrades existing SQLite/PostgreSQL CHECK
-// definitions so Console CDN traffic can use an independently managed scope.
+// definitions for independently managed resource and submission traffic.
 func (d *Database) ensureEgressAssetScopeConstraints(ctx context.Context) error {
 	return d.ensureNamedConstraints(ctx, []consoleConstraint{
 		{model: &egressNodeModel{}, table: "egress_nodes", name: "chk_egress_nodes_specific_scope"},
 		{model: &egressSubscriptionSourceModel{}, table: "egress_subscription_sources", name: "chk_egress_subscription_sources_scope"},
 		{model: &requestAuditModel{}, table: "request_audits", name: "chk_request_audits_egress_scope"},
-	}, "grok_console_asset")
+	}, "grok_web_submit")
 }
 
 // ensureAuditOperationConstraints upgrades existing databases so Codex remote

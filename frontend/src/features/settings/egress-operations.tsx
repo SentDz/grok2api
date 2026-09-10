@@ -50,10 +50,11 @@ const emptySource: SourceForm = {
 // 15-second ceiling. Keeping a request to 32 nodes leaves enough headroom for
 // the admin HTTP timeout.
 const egressProbeBatchSize = 32;
-const fallbackScopes: EgressScope[] = ["grok_build", "grok_web", "grok_console", "grok_web_asset", "grok_console_asset"];
+const fallbackScopes: EgressScope[] = ["grok_build", "grok_web", "grok_web_submit", "grok_console", "grok_web_asset", "grok_console_asset"];
 const fallbackDescriptionKeys: Record<EgressScope, string> = {
   grok_build: "settings.egress.fallbackBuildHelp",
   grok_web: "settings.egress.fallbackWebHelp",
+  grok_web_submit: "settings.egress.fallbackWebSubmitHelp",
   grok_console: "settings.egress.fallbackConsoleHelp",
   grok_web_asset: "settings.egress.fallbackWebAssetHelp",
   grok_console_asset: "settings.egress.fallbackConsoleAssetHelp",
@@ -62,6 +63,7 @@ const fallbackDescriptionKeys: Record<EgressScope, string> = {
 function defaultFallbacks(): Record<EgressScope, EgressFallbackConfigDTO> {
   return {
     grok_build: { mode: "none" }, grok_web: { mode: "none" },
+    grok_web_submit: { mode: "none" },
     grok_console: { mode: "none" }, grok_web_asset: { mode: "none" }, grok_console_asset: { mode: "none" },
   };
 }
@@ -83,6 +85,7 @@ function operationsFormFrom(value?: EgressOperationsConfigDTO): Omit<EgressOpera
     fallbacks: {
       grok_build: { ...defaults.grok_build, ...value.fallbacks.grok_build },
       grok_web: { ...defaults.grok_web, ...value.fallbacks.grok_web },
+      grok_web_submit: { ...defaults.grok_web_submit, ...value.fallbacks.grok_web_submit },
       grok_console: { ...defaults.grok_console, ...value.fallbacks.grok_console },
       grok_web_asset: { ...defaults.grok_web_asset, ...value.fallbacks.grok_web_asset },
       grok_console_asset: { ...defaults.grok_console_asset, ...value.fallbacks.grok_console_asset },
@@ -325,6 +328,7 @@ export function EgressSources({ scopeLabel }: { scopeLabel: (scope: EgressScope)
                   { value: "grok_web", label: scopeLabel("grok_web") },
                   { value: "grok_console", label: scopeLabel("grok_console") },
                   { value: "grok_web_asset", label: scopeLabel("grok_web_asset") },
+                  { value: "grok_web_submit", label: scopeLabel("grok_web_submit") },
                   { value: "grok_console_asset", label: scopeLabel("grok_console_asset") },
                 ],
               }]} />
@@ -391,7 +395,7 @@ function nodeCooling(node: EgressNodeDTO): boolean {
 
 function supportsFallbackScope(nodeScope: EgressScope, requestScope: EgressScope): boolean {
   if (nodeScope === requestScope) return true;
-  if (requestScope === "grok_console" || requestScope === "grok_web_asset") return nodeScope === "grok_web";
+  if (requestScope === "grok_console" || requestScope === "grok_web_asset" || requestScope === "grok_web_submit") return nodeScope === "grok_web";
   return requestScope === "grok_console_asset" && (nodeScope === "grok_console" || nodeScope === "grok_web");
 }
 

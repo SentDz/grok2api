@@ -364,7 +364,11 @@ curl http://127.0.0.1:7878/v1/responses \
 
 ## 出口与 Cloudflare
 
-出口节点按 Build、Web、Console 或 Web 资源隔离。管理端支持：
+出口节点按 Build、Web、Web 仅提交、Console、Web 资源或 Console 资源隔离。
+
+`Grok Web(仅提交)` 只代理聊天连接和视频生成任务的提交（包括视频延长），不代理附件上传、图片生成、媒体下载、账号查询或视频状态轮询。账号绑定该节点后，其他 Web 请求使用直连；未绑定账号时，提交优先选择此作用域，其他请求仍按各自作用域路由。没有配置仅提交节点时，沿用原有 Web 出口和回退策略。
+
+管理端支持：
 
 - HTTP、HTTPS、SOCKS4/4A、SOCKS5/5H、Resin、Trojan、VLESS、Shadowsocks 与 VMess
 - 隧道协议支持 TCP、WebSocket 和 TLS，未实现的传输形态会在导入时拒绝

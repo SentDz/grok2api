@@ -566,11 +566,11 @@ func publicSource(value domain.SubscriptionSource) domain.PublicSubscriptionSour
 }
 
 func validScope(scope domain.Scope) bool {
-	return scope == domain.ScopeBuild || scope == domain.ScopeWeb || scope == domain.ScopeConsole || scope == domain.ScopeWebAsset || scope == domain.ScopeConsoleAsset
+	return scope == domain.ScopeBuild || scope == domain.ScopeWeb || scope == domain.ScopeWebSubmit || scope == domain.ScopeConsole || scope == domain.ScopeWebAsset || scope == domain.ScopeConsoleAsset
 }
 
 func allOperationScopes() []domain.Scope {
-	return []domain.Scope{domain.ScopeBuild, domain.ScopeWeb, domain.ScopeConsole, domain.ScopeWebAsset, domain.ScopeConsoleAsset}
+	return []domain.Scope{domain.ScopeBuild, domain.ScopeWeb, domain.ScopeWebSubmit, domain.ScopeConsole, domain.ScopeWebAsset, domain.ScopeConsoleAsset}
 }
 
 func validateImportInput(input ImportInput) error {

@@ -355,6 +355,11 @@ func TestRemoteChatImageHeadersNeverLeakCredentials(t *testing.T) {
 }
 
 func TestChatImageUploadFeedsFileMetadataIntoConversation(t *testing.T) {
+	t.Run("direct", func(t *testing.T) { testChatImageUploadRouting(t, false) })
+	t.Run("submission-only", func(t *testing.T) { testChatImageUploadRouting(t, true) })
+}
+
+func testChatImageUploadRouting(t *testing.T, submissionOnly bool) {
 	dataURI := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 	var uploadUserAgent string
 	server := fhttptest.NewServer(fhttp.HandlerFunc(func(writer fhttp.ResponseWriter, request *fhttp.Request) {
@@ -386,7 +391,14 @@ func TestChatImageUploadFeedsFileMetadataIntoConversation(t *testing.T) {
 			t.Error("不应调用旧版 Base64 上传接口")
 			writer.WriteHeader(http.StatusInternalServerError)
 		case "/ws/mgw/":
-			if request.Header.Get("User-Agent") != uploadUserAgent {
+			expectedAgent := uploadUserAgent
+			if submissionOnly {
+				expectedAgent = submissionTestAgent
+				if uploadUserAgent == submissionTestAgent {
+					t.Error("chat attachment uploaded through submission proxy")
+				}
+			}
+			if request.Header.Get("User-Agent") != expectedAgent {
 				t.Errorf("chat user-agent %q differs from upload %q", request.Header.Get("User-Agent"), uploadUserAgent)
 			}
 			connection, err := (&websocket.Upgrader{CheckOrigin: func(*fhttp.Request) bool { return true }}).Upgrade(writer, request, nil)
@@ -435,7 +447,13 @@ func TestChatImageUploadFeedsFileMetadataIntoConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter := NewAdapter(Config{BaseURL: server.URL}, infraegress.NewManager(egressRepositoryStub{}, cipher), cipher, nil, nil)
+	manager := infraegress.NewManager(egressRepositoryStub{}, cipher)
+	var boundNodeID uint64
+	if submissionOnly {
+		manager = newSubmissionTestManager(t, cipher, server.URL)
+		boundNodeID = 1
+	}
+	adapter := NewAdapter(Config{BaseURL: server.URL}, manager, cipher, nil, nil)
 	content, _ := json.Marshal([]any{
 		map[string]any{"type": "text", "text": "inspect"},
 		map[string]any{"type": "image_url", "image_url": map[string]any{"url": dataURI}},
@@ -444,7 +462,7 @@ func TestChatImageUploadFeedsFileMetadataIntoConversation(t *testing.T) {
 		"model": "grok-chat-fast", "messages": []any{map[string]any{"role": "user", "content": json.RawMessage(content)}},
 	})
 	response, err := adapter.ForwardResponse(context.Background(), provider.ResponseResourceRequest{
-		Credential: account.Credential{ID: 1, UserID: "497f19f8-49d4-458a-bee4-43ec3dcaf8ca", EncryptedAccessToken: encrypted}, Method: http.MethodPost,
+		Credential: account.Credential{ID: 1, UserID: "497f19f8-49d4-458a-bee4-43ec3dcaf8ca", EncryptedAccessToken: encrypted, EgressNodeID: boundNodeID}, Method: http.MethodPost,
 		Path: "/responses", Body: body, Model: "grok-chat-fast", Operation: "chat",
 	})
 	if err != nil {

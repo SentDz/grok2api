@@ -254,7 +254,7 @@ func (a *Adapter) ForwardResponse(ctx context.Context, request provider.Response
 		if attempt > 0 {
 			attemptCtx = infraegress.WithPhysicalCallStage(ctx, "anti_bot_retry")
 		}
-		upstream, lease, currentPrevious, statsigTarget, openErr := a.openChat(attemptCtx, request.Credential, input.PreviousResponseID, spec, normalized, gatewayOpenOptions{enforceStreamIdle: true})
+		upstream, lease, currentPrevious, statsigTarget, openErr := a.openChat(attemptCtx, request.Credential, input.PreviousResponseID, spec, normalized, gatewayOpenOptions{enforceStreamIdle: true, submissionOnly: true})
 		if openErr != nil {
 			if errors.Is(openErr, errInvalidChatAttachment) || errors.Is(openErr, errInvalidChatImage) || errors.Is(openErr, errInvalidChatFile) {
 				code := "invalid_attachment_input"

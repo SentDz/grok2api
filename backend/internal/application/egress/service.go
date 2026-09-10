@@ -403,7 +403,8 @@ func (s *Service) DefaultUserAgents() map[string]string {
 	defer s.mu.RUnlock()
 	return map[string]string{
 		string(domain.ScopeBuild): "", string(domain.ScopeWeb): s.browserUA, string(domain.ScopeConsole): s.browserUA,
-		string(domain.ScopeWebAsset): s.browserUA, string(domain.ScopeConsoleAsset): s.browserUA,
+		string(domain.ScopeWebSubmit): s.browserUA,
+		string(domain.ScopeWebAsset):  s.browserUA, string(domain.ScopeConsoleAsset): s.browserUA,
 	}
 }
 
@@ -457,11 +458,11 @@ func (s *Service) publicNodes(values []domain.Node) []domain.PublicNode {
 }
 
 func validListScope(scope domain.Scope) bool {
-	return scope == "" || scope == domain.ScopeBuild || scope == domain.ScopeWeb || scope == domain.ScopeConsole || scope == domain.ScopeWebAsset || scope == domain.ScopeConsoleAsset
+	return scope == "" || scope == domain.ScopeBuild || scope == domain.ScopeWeb || scope == domain.ScopeWebSubmit || scope == domain.ScopeConsole || scope == domain.ScopeWebAsset || scope == domain.ScopeConsoleAsset
 }
 
 func allServiceScopes() []domain.Scope {
-	return []domain.Scope{domain.ScopeBuild, domain.ScopeWeb, domain.ScopeConsole, domain.ScopeWebAsset, domain.ScopeConsoleAsset}
+	return []domain.Scope{domain.ScopeBuild, domain.ScopeWeb, domain.ScopeWebSubmit, domain.ScopeConsole, domain.ScopeWebAsset, domain.ScopeConsoleAsset}
 }
 
 func validListValue(value string, allowed ...string) bool {
@@ -1069,7 +1070,7 @@ func scopeSupportsProvider(scope domain.Scope, provider accountdomain.Provider) 
 	case accountdomain.ProviderBuild:
 		return scope == domain.ScopeBuild
 	case accountdomain.ProviderWeb:
-		return scope == domain.ScopeWeb
+		return scope == domain.ScopeWeb || scope == domain.ScopeWebSubmit
 	case accountdomain.ProviderConsole:
 		return domain.SupportsScope(scope, domain.ScopeConsole)
 	default:
@@ -1161,7 +1162,7 @@ func (s *Service) applyInput(value domain.Node, input Input, create bool) (domai
 		return domain.Node{}, fmt.Errorf("%w: 名称必须在 1 到 160 个字符之间", ErrInvalidInput)
 	}
 	if !validListScope(input.Scope) || input.Scope == "" {
-		return domain.Node{}, fmt.Errorf("%w: scope 必须是 grok_build、grok_web、grok_console、grok_web_asset 或 grok_console_asset", ErrInvalidInput)
+		return domain.Node{}, fmt.Errorf("%w: scope 必须是 grok_build、grok_web、grok_web_submit、grok_console、grok_web_asset 或 grok_console_asset", ErrInvalidInput)
 	}
 	value.Name, value.Scope, value.Enabled, value.ProxyPool = name, input.Scope, input.Enabled, proxyPool
 	if input.AccountCapacity != nil {

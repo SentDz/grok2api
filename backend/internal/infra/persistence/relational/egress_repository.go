@@ -559,6 +559,7 @@ func configReferencesAnyFallbackNode(config egressOperationsConfigModel, ids []u
 	}{
 		{config.BuildFallbackMode, config.BuildFallbackNodeID},
 		{config.WebFallbackMode, config.WebFallbackNodeID},
+		{config.WebSubmitFallbackMode, config.WebSubmitFallbackNodeID},
 		{config.ConsoleFallbackMode, config.ConsoleFallbackNodeID},
 		{config.WebAssetFallbackMode, config.WebAssetFallbackNodeID},
 		{config.ConsoleAssetFallbackMode, config.ConsoleAssetFallbackNodeID},
@@ -581,6 +582,7 @@ func validateLockedEgressFallbackNodes(tx *gorm.DB, config egressOperationsConfi
 	}{
 		{egress.ScopeBuild, config.BuildFallbackMode, config.BuildFallbackNodeID},
 		{egress.ScopeWeb, config.WebFallbackMode, config.WebFallbackNodeID},
+		{egress.ScopeWebSubmit, config.WebSubmitFallbackMode, config.WebSubmitFallbackNodeID},
 		{egress.ScopeConsole, config.ConsoleFallbackMode, config.ConsoleFallbackNodeID},
 		{egress.ScopeWebAsset, config.WebAssetFallbackMode, config.WebAssetFallbackNodeID},
 		{egress.ScopeConsoleAsset, config.ConsoleAssetFallbackMode, config.ConsoleAssetFallbackNodeID},
@@ -719,6 +721,7 @@ func clearEgressFallbackNodeReferences(tx *gorm.DB, ids []uint64) error {
 	for _, columns := range [][2]string{
 		{"build_fallback_mode", "build_fallback_node_id"},
 		{"web_fallback_mode", "web_fallback_node_id"},
+		{"web_submit_fallback_mode", "web_submit_fallback_node_id"},
 		{"console_fallback_mode", "console_fallback_node_id"},
 		{"web_asset_fallback_mode", "web_asset_fallback_node_id"},
 		{"console_asset_fallback_mode", "console_asset_fallback_node_id"},
@@ -748,6 +751,7 @@ func clearInvalidEgressFallbackNodeReferences(tx *gorm.DB) error {
 	}{
 		{egress.ScopeBuild, config.BuildFallbackMode, config.BuildFallbackNodeID, "build_fallback_mode", "build_fallback_node_id"},
 		{egress.ScopeWeb, config.WebFallbackMode, config.WebFallbackNodeID, "web_fallback_mode", "web_fallback_node_id"},
+		{egress.ScopeWebSubmit, config.WebSubmitFallbackMode, config.WebSubmitFallbackNodeID, "web_submit_fallback_mode", "web_submit_fallback_node_id"},
 		{egress.ScopeConsole, config.ConsoleFallbackMode, config.ConsoleFallbackNodeID, "console_fallback_mode", "console_fallback_node_id"},
 		{egress.ScopeWebAsset, config.WebAssetFallbackMode, config.WebAssetFallbackNodeID, "web_asset_fallback_mode", "web_asset_fallback_node_id"},
 		{egress.ScopeConsoleAsset, config.ConsoleAssetFallbackMode, config.ConsoleAssetFallbackNodeID, "console_asset_fallback_mode", "console_asset_fallback_node_id"},
@@ -933,6 +937,7 @@ func toEgressOperationsConfigDomain(row egressOperationsConfigModel) egress.Oper
 		Fallbacks: map[egress.Scope]egress.FallbackConfig{
 			egress.ScopeBuild:        {Mode: egress.FallbackMode(row.BuildFallbackMode).Normalized(), NodeID: row.BuildFallbackNodeID},
 			egress.ScopeWeb:          {Mode: egress.FallbackMode(row.WebFallbackMode).Normalized(), NodeID: row.WebFallbackNodeID},
+			egress.ScopeWebSubmit:    {Mode: egress.FallbackMode(row.WebSubmitFallbackMode).Normalized(), NodeID: row.WebSubmitFallbackNodeID},
 			egress.ScopeConsole:      {Mode: egress.FallbackMode(row.ConsoleFallbackMode).Normalized(), NodeID: row.ConsoleFallbackNodeID},
 			egress.ScopeWebAsset:     {Mode: egress.FallbackMode(row.WebAssetFallbackMode).Normalized(), NodeID: row.WebAssetFallbackNodeID},
 			egress.ScopeConsoleAsset: {Mode: egress.FallbackMode(row.ConsoleAssetFallbackMode).Normalized(), NodeID: row.ConsoleAssetFallbackNodeID},
@@ -944,6 +949,7 @@ func toEgressOperationsConfigDomain(row egressOperationsConfigModel) egress.Oper
 func fromEgressOperationsConfigDomain(value egress.OperationsConfig) egressOperationsConfigModel {
 	buildFallback := value.FallbackFor(egress.ScopeBuild)
 	webFallback := value.FallbackFor(egress.ScopeWeb)
+	webSubmitFallback := value.FallbackFor(egress.ScopeWebSubmit)
 	consoleFallback := value.FallbackFor(egress.ScopeConsole)
 	webAssetFallback := value.FallbackFor(egress.ScopeWebAsset)
 	consoleAssetFallback := value.FallbackFor(egress.ScopeConsoleAsset)
@@ -952,6 +958,7 @@ func fromEgressOperationsConfigDomain(value egress.OperationsConfig) egressOpera
 		AutoBalanceEnabled: value.AutoBalanceEnabled, AssignmentIntervalSeconds: value.AssignmentIntervalSeconds,
 		BuildFallbackMode: string(buildFallback.Mode), BuildFallbackNodeID: buildFallback.NodeID,
 		WebFallbackMode: string(webFallback.Mode), WebFallbackNodeID: webFallback.NodeID,
+		WebSubmitFallbackMode: string(webSubmitFallback.Mode), WebSubmitFallbackNodeID: webSubmitFallback.NodeID,
 		ConsoleFallbackMode: string(consoleFallback.Mode), ConsoleFallbackNodeID: consoleFallback.NodeID,
 		WebAssetFallbackMode: string(webAssetFallback.Mode), WebAssetFallbackNodeID: webAssetFallback.NodeID,
 		ConsoleAssetFallbackMode: string(consoleAssetFallback.Mode), ConsoleAssetFallbackNodeID: consoleAssetFallback.NodeID,

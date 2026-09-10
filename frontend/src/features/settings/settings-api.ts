@@ -87,7 +87,7 @@ export type EgressProxyProfileListDTO = {
 	total: number;
 };
 
-export type EgressScope = "grok_build" | "grok_web" | "grok_console" | "grok_web_asset" | "grok_console_asset";
+export type EgressScope = "grok_build" | "grok_web" | "grok_web_submit" | "grok_console" | "grok_web_asset" | "grok_console_asset";
 export type EgressFallbackMode = "none" | "direct" | "fixed";
 export type EgressFallbackConfigDTO = { mode: EgressFallbackMode; nodeId?: string };
 export type EgressNodeListDTO = {
@@ -262,7 +262,7 @@ const withEgressSourceDefaults = (value: EgressSourceWireDTO): EgressSourceDTO =
   proxyConfigured: value.proxyConfigured ?? false,
 });
 const egressNodeValidator = hasShape({
-  id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean,
+  id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_web_submit", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean,
   proxyConfigured: isBoolean, proxyDisplay: isOptional(isString), proxyFingerprint: isOptional(isString), userAgent: isString, cookieConfigured: isBoolean, accountBoundProxy: isBoolean, proxyPool: isBoolean, health: isNumber, failureCount: isNumber,
   sourceId: isOptional(isString), proxyProfileId: isOptional(isString), proxyProfileName: isOptional(isString), accountCapacity: isNumber, assignedAccountCount: isNumber,
   probeStatus: isOneOf("unknown", "healthy", "unhealthy"), lastProbedAt: isOptional(isString), probeLatencyMs: isNumber, exitIp: isOptional(isString), probeError: isOptional(isString), probeProvider: isOptional(isOneOf("ipinfo", "cloudflare")),
@@ -270,7 +270,7 @@ const egressNodeValidator = hasShape({
   cooldownUntil: isOptional(isString), lastError: isOptional(isString),
 });
 const decodeEgressNodeRaw = createObjectDecoder<EgressNodeWireDTO>("egress node", {
-  id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean,
+  id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_web_submit", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean,
   proxyConfigured: isBoolean, proxyDisplay: isOptional(isString), proxyFingerprint: isOptional(isString), userAgent: isString, cookieConfigured: isBoolean, accountBoundProxy: isBoolean, proxyPool: isBoolean, health: isNumber, failureCount: isNumber,
   sourceId: isOptional(isString), proxyProfileId: isOptional(isString), proxyProfileName: isOptional(isString), accountCapacity: isNumber, assignedAccountCount: isNumber,
   probeStatus: isOneOf("unknown", "healthy", "unhealthy"), lastProbedAt: isOptional(isString), probeLatencyMs: isNumber, exitIp: isOptional(isString), probeError: isOptional(isString), probeProvider: isOptional(isOneOf("ipinfo", "cloudflare")),
@@ -291,14 +291,14 @@ type EgressNodeListWireDTO = {
   page?: number;
   pageSize?: number;
   total?: number;
-  defaultUserAgents: Omit<Record<EgressScope, string>, "grok_console_asset"> & { grok_console_asset?: string };
+  defaultUserAgents: Omit<Record<EgressScope, string>, "grok_console_asset" | "grok_web_submit"> & { grok_console_asset?: string; grok_web_submit?: string };
 };
 const decodeEgressNodeListRaw = createObjectDecoder<EgressNodeListWireDTO>("egress node list", {
   items: isArrayOf(egressNodeValidator),
   page: isOptional(isNumber),
   pageSize: isOptional(isNumber),
   total: isOptional(isNumber),
-  defaultUserAgents: hasShape({ grok_build: isString, grok_web: isString, grok_console: isString, grok_web_asset: isString, grok_console_asset: isOptional(isString) }),
+  defaultUserAgents: hasShape({ grok_build: isString, grok_web: isString, grok_web_submit: isOptional(isString), grok_console: isString, grok_web_asset: isString, grok_console_asset: isOptional(isString) }),
 });
 const decodeEgressNodeList = (value: unknown): EgressNodeListDTO => {
   const decoded = decodeEgressNodeListRaw(value);
@@ -310,18 +310,19 @@ const decodeEgressNodeList = (value: unknown): EgressNodeListDTO => {
     total: decoded.total ?? decoded.items.length,
     defaultUserAgents: {
       ...decoded.defaultUserAgents,
+      grok_web_submit: decoded.defaultUserAgents.grok_web_submit ?? decoded.defaultUserAgents.grok_web,
       grok_console_asset: decoded.defaultUserAgents.grok_console_asset ?? decoded.defaultUserAgents.grok_console,
     },
   };
 };
 const egressSourceValidator = hasShape({
-  id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean, urlConfigured: isBoolean,
+  id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_web_submit", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean, urlConfigured: isBoolean,
   proxyConfigured: isOptional(isBoolean),
   refreshIntervalSeconds: isNumber, defaultAccountCapacity: isNumber, lastSyncedAt: isOptional(isString), nextSyncAt: isOptional(isString),
   lastSyncImported: isNumber, lastSyncError: isOptional(isString),
 });
 const decodeEgressSourceRaw = createObjectDecoder<EgressSourceWireDTO>("egress source", {
-  id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean, urlConfigured: isBoolean,
+  id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_web_submit", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean, urlConfigured: isBoolean,
   proxyConfigured: isOptional(isBoolean),
   refreshIntervalSeconds: isNumber, defaultAccountCapacity: isNumber, lastSyncedAt: isOptional(isString), nextSyncAt: isOptional(isString),
   lastSyncImported: isNumber, lastSyncError: isOptional(isString),
