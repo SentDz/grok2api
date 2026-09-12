@@ -1,11 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, Clock, Loader2, RefreshCw } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, CheckCircle2, Clock, Loader2, RefreshCw, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { getVideoDetail } from "@/features/media/media-api";
+import { cancelVideo, getVideoDetail } from "@/features/media/media-api";
 import { ErrorState } from "@/shared/components/data-state";
 import { cn } from "@/shared/lib/cn";
 import { formatDateTime } from "@/shared/lib/format";
@@ -20,6 +21,16 @@ function elapsed(start: string, end: string): string {
 
 export function VideoTaskDialog({ jobId, onClose }: { jobId: string | null; onClose: () => void }) {
   const { t, i18n } = useTranslation();
+  const queryClient = useQueryClient();
+  const cancellation = useMutation({
+    mutationFn: cancelVideo,
+    onSuccess: (cancelled) => {
+      queryClient.setQueryData(["media", "videos", "detail", cancelled.id], cancelled);
+      toast.success(t("videoTask.cancelled"));
+    },
+    onError: (error) => toast.error(error.message),
+    onSettled: () => { void queryClient.invalidateQueries({ queryKey: ["media", "videos"] }); },
+  });
   const detail = useQuery({
     queryKey: ["media", "videos", "detail", jobId],
     queryFn: () => getVideoDetail(jobId!),
@@ -61,10 +72,15 @@ export function VideoTaskDialog({ jobId, onClose }: { jobId: string | null; onCl
                 {current && (!active || job.diagnosticsEnabled) ? <p className="text-muted-foreground">{t("videoTask.stageElapsed")}: <span className="font-mono">{elapsed(current.startedAt, current.finishedAt ?? job.completedAt ?? job.serverTime)}</span></p> : null}
                 {active && current?.deadlineAt && job.diagnosticsEnabled ? <p className="break-words text-muted-foreground">{t("videoTask.requestDeadline")}: {preciseDate(current.deadlineAt)}</p> : null}
               </div>
-              <Tooltip>
-                <TooltipTrigger asChild><Button variant="ghost" size="icon" className="size-8 shrink-0" disabled={detail.isFetching} onClick={() => void detail.refetch()} aria-label={t("common.refresh")}><RefreshCw className={detail.isFetching ? "animate-spin" : undefined} /></Button></TooltipTrigger>
-                <TooltipContent>{t("common.refresh")}</TooltipContent>
-              </Tooltip>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                {active ? <Button variant="destructive" size="sm" disabled={cancellation.isPending} onClick={() => cancellation.mutate(job.id)}>
+                  {cancellation.isPending ? <Loader2 className="animate-spin" /> : <Square />}{t("videoTask.forceCancel")}
+                </Button> : null}
+                <Tooltip>
+                  <TooltipTrigger asChild><Button variant="ghost" size="icon" className="size-8 shrink-0" disabled={detail.isFetching} onClick={() => void detail.refetch()} aria-label={t("common.refresh")}><RefreshCw className={detail.isFetching ? "animate-spin" : undefined} /></Button></TooltipTrigger>
+                  <TooltipContent>{t("common.refresh")}</TooltipContent>
+                </Tooltip>
+              </div>
             </div>
             {expired || (stale && job.diagnosticsEnabled) ? <p role="status" className="break-words border-l-2 border-amber-500 pl-3 text-amber-700 dark:text-amber-400">{expired ? t("videoTask.leaseExpired") : t("videoTask.stale", { duration: elapsed(job.updatedAt, job.serverTime) })}</p> : null}
             {!events.length ? <p className="text-muted-foreground">{t("videoTask.noHistory")}</p> : null}

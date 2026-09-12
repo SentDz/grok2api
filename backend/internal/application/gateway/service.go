@@ -217,6 +217,7 @@ type Service struct {
 	mediaQueue                  chan string
 	mediaMu                     sync.Mutex
 	mediaQueued                 map[string]struct{}
+	videoExecutions             map[string]*videoExecution
 	mediaWorker                 int
 	mediaInputSlots             chan struct{}
 	mediaQueueFull              atomic.Uint64

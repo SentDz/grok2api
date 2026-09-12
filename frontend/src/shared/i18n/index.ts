@@ -6,6 +6,7 @@ const resources = {
     translation: {
       appName: "Grok2API",
       videoTask: {
+        forceCancel: "强制取消", cancelled: "任务已取消并标记为失败",
         requestDeadline: "当前请求截止时间", proxy: "代理",
         nodeCooldownUntil: "节点冷却至",
         requests: { video_submit: "视频生成提交", media_post_create: "创建媒体 Post", video_poll: "视频结果轮询", statsig_meta_index: "Grok /index 页面", statsig_meta_root: "Grok 首页", statsig_sign_url: "Statsig URL 签名服务" },
@@ -1414,6 +1415,7 @@ const resources = {
         positive: "请输入大于 0 的数值",
       },
       apiErrors: {
+        videoCancelUnavailable: "视频任务取消服务不可用", videoJobAlreadyFinished: "视频任务已结束，无法取消", videoCancelFailed: "取消视频任务失败",
         accountBatchDeleteFailed: "批量删除账号失败",
         accountCleanupFailed: "清理账号失败",
         accountBatchUpdateFailed: "批量更新账号失败",
@@ -1484,6 +1486,7 @@ const resources = {
     translation: {
       appName: "Grok2API",
       videoTask: {
+        forceCancel: "Force cancel", cancelled: "Task cancelled and marked as failed",
         requestDeadline: "Current request deadline", proxy: "Proxy",
         nodeCooldownUntil: "Node cooldown until",
         requests: { video_submit: "Video generation submission", media_post_create: "Create media post", video_poll: "Video result polling", statsig_meta_index: "Grok /index page", statsig_meta_root: "Grok home page", statsig_sign_url: "Statsig URL signer" },
@@ -2192,6 +2195,7 @@ const resources = {
       quotaProducts: { thirdParty: "Third Party", api: "API", build: "Grok Build", plugins: "Grok Plugins", chat: "Chat", imagine: "Imagine", voice: "Voice", unknown: "Product {{code}}" },
       errors: { generic: "The operation failed. Please try again.", required: "This field is required", minPassword: "Password must contain at least 8 characters", positive: "Enter a value greater than zero" },
       apiErrors: {
+        videoCancelUnavailable: "Video cancellation is unavailable", videoJobAlreadyFinished: "This video task has already finished", videoCancelFailed: "Failed to cancel the video task",
         accountBatchDeleteFailed: "Failed to delete accounts",
         accountCleanupFailed: "Failed to clean up accounts",
         accountBatchUpdateFailed: "Failed to update accounts",

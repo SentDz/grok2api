@@ -7,6 +7,9 @@ import (
 
 type Status string
 
+const VideoCancelledErrorCode = "cancelled_by_admin"
+const VideoCancelledMessage = "视频任务已被管理员强制取消"
+
 const (
 	StatusQueued     Status = "queued"
 	StatusInProgress Status = "in_progress"

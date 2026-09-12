@@ -275,7 +275,7 @@ func (r *MediaUploadTicketRepository) DeleteExpiredUploadTickets(ctx context.Con
 
 func (r *MediaUploadTicketRepository) BindJobResultAsset(ctx context.Context, jobID, assetID string) error {
 	result := r.db.db.WithContext(ctx).Model(&mediaJobModel{}).
-		Where("id = ?", jobID).
+		Where("id = ? AND error_code <> ?", jobID, media.VideoCancelledErrorCode).
 		Updates(map[string]any{"result_asset_id": assetID, "updated_at": time.Now().UTC()})
 	if result.Error != nil {
 		return result.Error
@@ -330,7 +330,7 @@ func (r *MediaJobRepository) GetMediaJobsByIDs(ctx context.Context, ids []string
 
 func (r *MediaJobRepository) UpdateMediaJob(ctx context.Context, value media.Job) error {
 	updates := mediaJobFromDomain(value)
-	query := r.db.db.WithContext(ctx).Model(&mediaJobModel{}).Where("id = ?", value.ID)
+	query := r.db.db.WithContext(ctx).Model(&mediaJobModel{}).Where("id = ? AND error_code <> ?", value.ID, media.VideoCancelledErrorCode)
 	if value.ClaimToken != "" {
 		query = query.Where("claim_token = ?", value.ClaimToken)
 	}
@@ -347,6 +347,38 @@ func (r *MediaJobRepository) UpdateMediaJob(ctx context.Context, value media.Job
 		return repository.ErrNotFound
 	}
 	return nil
+}
+
+// CancelMediaJob fences stale workers before returning the full job for cleanup.
+func (r *MediaJobRepository) CancelMediaJob(ctx context.Context, id string, now time.Time) (media.Job, error) {
+	var job media.Job
+	err := r.db.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&mediaJobModel{}).
+			Where("id = ? AND status IN ?", id, []media.Status{media.StatusQueued, media.StatusInProgress}).
+			Updates(map[string]any{
+				"status": media.StatusFailed, "error_code": media.VideoCancelledErrorCode, "error_message": media.VideoCancelledMessage,
+				"claim_token": "", "lease_until": nil, "updated_at": now, "completed_at": now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		var row mediaJobModel
+		if err := tx.Where("id = ?", id).First(&row).Error; err != nil {
+			return mapError(err)
+		}
+		if result.RowsAffected == 0 && row.ErrorCode != media.VideoCancelledErrorCode {
+			return repository.ErrConflict
+		}
+		job = mediaJobToDomain(row)
+		if result.RowsAffected > 0 && job.Diagnostics.Current() != nil {
+			job.Diagnostics.Fail(media.VideoCancelledMessage, 0, now)
+			if err := tx.Model(&mediaJobModel{}).Where("id = ?", id).Select("diagnostics").Updates(&mediaJobModel{Diagnostics: job.Diagnostics}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Where("job_id = ?", id).Delete(&mediaUploadTicketModel{}).Error
+	})
+	return job, err
 }
 
 // DeleteMediaJob 仅删除终态任务，避免管理端与视频 Worker 并发修改同一任务。

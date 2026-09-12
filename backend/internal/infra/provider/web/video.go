@@ -623,7 +623,7 @@ func (a *Adapter) pollMediaPostVideo(ctx context.Context, cfg Config, lease *egr
 			if errors.Is(err, provider.ErrVideoModerated) {
 				return provider.VideoResult{}, err
 			}
-			if status, ok := provider.ErrorHTTPStatus(err); ok && status > 0 && status < 500 && status != http.StatusNotFound {
+			if status, ok := provider.ErrorHTTPStatus(err); ok && status > 0 && status < 500 {
 				return provider.VideoResult{}, err
 			}
 		}
@@ -652,14 +652,11 @@ func (a *Adapter) fetchMediaPostVideo(ctx context.Context, cfg Config, lease *eg
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
-	if err != nil {
-		return provider.VideoResult{}, false, fmt.Errorf("读取媒体 Post: %w", err)
-	}
-	if response.StatusCode == http.StatusNotFound {
-		return provider.VideoResult{}, false, nil
-	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return provider.VideoResult{}, false, newWebMediaUpstreamError(response.StatusCode, body, false)
+	}
+	if err != nil {
+		return provider.VideoResult{}, false, fmt.Errorf("读取媒体 Post: %w", err)
 	}
 	var value struct {
 		Post struct {

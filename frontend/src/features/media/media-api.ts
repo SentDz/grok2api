@@ -120,6 +120,10 @@ export function getVideoDetail(id: string): Promise<VideoJobDetailDTO> {
   return apiRequest(`/api/admin/v1/media/videos/${encodeURIComponent(id)}`, {}, decodeVideoDetail);
 }
 
+export function cancelVideo(id: string): Promise<VideoJobDetailDTO> {
+  return apiRequest(`/api/admin/v1/media/videos/${encodeURIComponent(id)}/cancel`, { method: "POST" }, decodeVideoDetail);
+}
+
 export function deleteVideos(ids: string[]): Promise<{ deleted: number }> {
   return apiRequest("/api/admin/v1/media/videos", { method: "DELETE", body: { ids } }, decodeCountResult<{ deleted: number }>("deleted"));
 }

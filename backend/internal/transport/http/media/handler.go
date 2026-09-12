@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -16,9 +17,16 @@ import (
 )
 
 type Handler struct {
-	service     *mediaapp.Service
-	ingestSlots chan struct{}
+	service       *mediaapp.Service
+	ingestSlots   chan struct{}
+	videoCanceler VideoCanceler
 }
+
+type VideoCanceler interface {
+	CancelVideoJob(context.Context, string) error
+}
+
+func (h *Handler) SetVideoCanceler(canceler VideoCanceler) { h.videoCanceler = canceler }
 
 func NewHandler(service *mediaapp.Service) *Handler {
 	return &Handler{service: service, ingestSlots: make(chan struct{}, ingestConcurrency)}
@@ -45,6 +53,25 @@ func (h *Handler) RegisterAdmin(router *gin.RouterGroup) {
 	router.DELETE("/media/videos", h.deleteVideos)
 	router.GET("/media/videos/stats", h.videoStats)
 	router.GET("/media/videos/:jobId", h.videoDetail)
+	router.POST("/media/videos/:jobId/cancel", h.cancelVideo)
+}
+
+func (h *Handler) cancelVideo(c *gin.Context) {
+	if h.videoCanceler == nil {
+		response.Error(c, http.StatusServiceUnavailable, "videoCancelUnavailable", "视频任务取消服务不可用")
+		return
+	}
+	err := h.videoCanceler.CancelVideoJob(c.Request.Context(), c.Param("jobId"))
+	switch {
+	case errors.Is(err, repository.ErrNotFound):
+		response.Error(c, http.StatusNotFound, "videoJobNotFound", "视频任务不存在")
+	case errors.Is(err, repository.ErrConflict):
+		response.Error(c, http.StatusConflict, "videoJobAlreadyFinished", "视频任务已结束，无法取消")
+	case err != nil:
+		response.Error(c, http.StatusInternalServerError, "videoCancelFailed", "取消视频任务失败")
+	default:
+		h.videoDetail(c)
+	}
 }
 
 type deleteImagesRequest struct {

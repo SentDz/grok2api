@@ -859,6 +859,10 @@ func (r *videoUsageRepository) GetMediaJobsByIDs(context.Context, []string) ([]m
 
 func (r *videoUsageRepository) UpdateMediaJob(context.Context, media.Job) error { return nil }
 
+func (r *videoUsageRepository) CancelMediaJob(context.Context, string, time.Time) (media.Job, error) {
+	return media.Job{}, repository.ErrConflict
+}
+
 func (r *videoUsageRepository) DeleteMediaJob(context.Context, string) error { return nil }
 
 func (r *videoUsageRepository) CleanupVideoDiagnostics(context.Context, time.Time, time.Duration, int) (int64, error) {

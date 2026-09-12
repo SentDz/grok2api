@@ -665,7 +665,7 @@ func (s *Service) processVideoJob(ctx context.Context, id string) {
 		s.logger.Warn("video_job_claim_failed", "job_id", id, "error", err)
 		return
 	}
-	if !claimed {
+	if !claimed || job.Status != media.StatusInProgress {
 		return
 	}
 	if current := job.Diagnostics.Current(); current != nil && current.FinishedAt == nil {
@@ -713,6 +713,11 @@ func (s *Service) claimVideoJob(ctx context.Context, id string) (media.Job, bool
 func (s *Service) runVideoJob(parent context.Context, job media.Job, route model.Route) {
 	ctx, cancel := context.WithTimeout(parent, videoJobTimeout)
 	defer cancel()
+	ctx, stopExecution := s.videoExecutionContext(ctx, job)
+	defer stopExecution()
+	if errors.Is(context.Cause(ctx), errVideoCancelled) {
+		return
+	}
 	ctx, egressTrace := infraegress.WithTrace(ctx)
 	ctx = provider.WithVideoEventReporter(ctx, func(event media.VideoEvent) {
 		applyMediaJobEgress(&job, egressTrace, route.Provider)
@@ -776,6 +781,11 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 	failureAttempts := newFailureAttemptRecorder(http.MethodPost, "/videos/generations")
 	var selection *selectionSession
 	var lease *accountLease
+	defer func() {
+		if lease != nil {
+			lease.Release()
+		}
+	}()
 	var result provider.VideoResult
 	var lastErr error
 
@@ -888,6 +898,9 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 				updateCancel()
 			},
 		})
+		if errors.Is(context.Cause(ctx), errVideoCancelled) {
+			return
+		}
 		if err == nil && provider.IsFastRemoteVideoRisk(time.Since(attemptStarted), result) {
 			// 10 秒内可访问的远程成片大概率是风控风景视频：不下载。正式任务按创建失败换号；账号测试钉死原号并失败。
 			s.logger.Warn("video_risk_scenery_detected", "job_id", job.ID, "account_id", lease.Credential.ID, "provider", lease.Credential.Provider, "elapsed_ms", time.Since(attemptStarted).Milliseconds())
@@ -900,6 +913,9 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 		}
 		if err == nil && result.AssetID == "" && result.URL != "" {
 			result, err = s.persistRemoteVideo(ctx, job.ID, adapter, lease.Credential, result)
+		}
+		if errors.Is(context.Cause(ctx), errVideoCancelled) {
+			return
 		}
 		if err == nil {
 			break
@@ -1027,8 +1043,6 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 		s.failVideoJob(parent, job, "account_unavailable", ErrNoAvailableAccount, 0, failureAttempts.snapshot())
 		return
 	}
-	defer lease.Release()
-
 	// Provider 已消费请求体，尽早释放 Base64 物化名额和大字符串。
 	referenceURLs = nil
 	releaseInputSlot()
