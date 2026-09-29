@@ -443,7 +443,7 @@ func (a *Adapter) extendVideoV15(ctx context.Context, cfg Config, lease *egress.
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, fmt.Errorf("Web 视频延长必须提供大于 0 的 video_extension_start_time"))
 	}
 	provider.ReportVideoStep(ctx, "load_source_video")
-	video, err := a.loadVideoExtensionInput(ctx, lease, request.VideoURL, 20<<20)
+	video, err := a.loadVideoExtensionInput(ctx, lease, request.VideoURL, 100<<20)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, err)
 	}
