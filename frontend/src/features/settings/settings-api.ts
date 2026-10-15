@@ -24,6 +24,7 @@ export type SettingsConfigDTO = {
     statsigMode: "builtin" | "manual" | "url"; statsigManualValue?: string; statsigManualConfigured: boolean; statsigSignerURL: string;
     statsigBuiltin?: StatsigBuiltinConfigDTO;
     clearanceMode: ClearanceMode; flareSolverrURL: string; clearanceTimeout: string; clearanceRefresh: string;
+    uploadTimeout?: string; referenceImageUploadProxy?: boolean;
     mediaConcurrency: number; allowNSFW: boolean; freeVideoDurationCap?: number;
     recoveryBackoffBase: string; recoveryBackoffMax: string;
   };
@@ -141,6 +142,7 @@ const settingsConfigValidator = hasShape({
     statsigMode: isOneOf("builtin", "manual", "url"), statsigManualValue: isOptional(isString), statsigManualConfigured: isBoolean,
     statsigBuiltin: isOptional(hasShape({ autoUpdate: isBoolean, checkIntervalSeconds: isNumber, captureAccountID: isNumber, llmEnabled: isBoolean, llmProvider: isOneOf("build", "external"), llmURL: isString, llmKeyConfigured: isBoolean, llmModel: isString, llmMaxAttempts: isNumber })),
     statsigSignerURL: isString, clearanceMode: isOneOf("manual", "flaresolverr", "on_demand"), flareSolverrURL: isString,
+    uploadTimeout: isOptional(isString), referenceImageUploadProxy: isOptional(isBoolean),
     clearanceTimeout: isString, clearanceRefresh: isString, mediaConcurrency: isNumber, allowNSFW: isBoolean, freeVideoDurationCap: isOptional(isNumber), recoveryBackoffBase: isString, recoveryBackoffMax: isString,
   }),
   providerConsole: hasShape({ baseURL: isString, chatTimeout: isString, streamIdleTimeout: isOptional(isString) }),

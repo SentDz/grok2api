@@ -15,7 +15,7 @@ import (
 func TestVideoDiagnosticsIdentifyReferenceFailureStage(t *testing.T) {
 	for _, model := range []string{"grok-imagine-video", "grok-imagine-video-1.5"} {
 		for _, failure := range []struct{ path, stage, request string }{
-			{"/http/upload-file-v2/direct", "upload_image", ""},
+			{"/http/upload-file-v2/direct", "upload_image", "video_reference_upload"},
 			{"/rest/media/post/create", "http_read_body", "media_post_create"},
 			{"/rest/app-chat/conversations/new", "http_read_body", "video_submit"},
 			{"", "wait_generation", ""},
@@ -58,7 +58,7 @@ func TestVideoDiagnosticsIdentifyReferenceFailureStage(t *testing.T) {
 				if (err != nil) != (failure.path != "") || len(stages) == 0 || stages[len(stages)-1] != failure.stage {
 					t.Fatalf("stages=%v err=%v", stages, err)
 				}
-				if current.Request != failure.request || (failure.request != "" && current.HTTPStatus != 400) {
+				if current.Request != failure.request || (failure.request != "" && failure.stage != "upload_image" && current.HTTPStatus != 400) {
 					t.Fatalf("failure operation/status = %#v", current)
 				}
 				if !slices.Contains(stages, "load_image") || uploadIndex != 1 || uploadTotal != 1 {

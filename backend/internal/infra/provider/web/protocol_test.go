@@ -1341,7 +1341,7 @@ func TestVideoReferenceUsesV2DirectUpload(t *testing.T) {
 	}
 	defer lease.Release()
 	adapter := NewAdapter(Config{BaseURL: server.URL}, manager, cipher, nil, nil)
-	uploaded, err := adapter.prepareVideoAsset(context.Background(), adapter.config(), lease, "test-sso", dataURI)
+	uploaded, err := adapter.prepareVideoAsset(context.Background(), adapter.config(), lease, account.Credential{}, "test-sso", dataURI)
 	if err != nil {
 		t.Fatal(err)
 	}

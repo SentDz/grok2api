@@ -69,27 +69,29 @@ type providerBuildConfigDTO struct {
 }
 
 type providerWebConfigDTO struct {
-	BaseURL                 string                               `json:"baseURL"`
-	AutoQuotaSyncEnabled    *bool                                `json:"autoQuotaSyncEnabled,omitempty"`
-	StatsigMode             string                               `json:"statsigMode"`
-	StatsigManualValue      string                               `json:"statsigManualValue,omitempty"`
-	StatsigManualConfigured bool                                 `json:"statsigManualConfigured"`
-	StatsigSignerURL        string                               `json:"statsigSignerURL"`
-	StatsigBuiltin          *settingsdomain.StatsigBuiltinConfig `json:"statsigBuiltin,omitempty"`
-	ClearanceMode           *string                              `json:"clearanceMode,omitempty"`
-	FlareSolverrURL         *string                              `json:"flareSolverrURL,omitempty"`
-	ClearanceTimeout        *string                              `json:"clearanceTimeout,omitempty"`
-	ClearanceRefresh        *string                              `json:"clearanceRefresh,omitempty"`
-	QuotaTimeout            string                               `json:"quotaTimeout"`
-	ChatTimeout             string                               `json:"chatTimeout"`
-	StreamIdleTimeout       string                               `json:"streamIdleTimeout"`
-	ImageTimeout            string                               `json:"imageTimeout"`
-	VideoTimeout            string                               `json:"videoTimeout"`
-	MediaConcurrency        int                                  `json:"mediaConcurrency"`
-	AllowNSFW               bool                                 `json:"allowNSFW"`
-	FreeVideoDurationCap    *int                                 `json:"freeVideoDurationCap,omitempty"`
-	RecoveryBackoffBase     string                               `json:"recoveryBackoffBase"`
-	RecoveryBackoffMax      string                               `json:"recoveryBackoffMax"`
+	BaseURL                   string                               `json:"baseURL"`
+	AutoQuotaSyncEnabled      *bool                                `json:"autoQuotaSyncEnabled,omitempty"`
+	StatsigMode               string                               `json:"statsigMode"`
+	StatsigManualValue        string                               `json:"statsigManualValue,omitempty"`
+	StatsigManualConfigured   bool                                 `json:"statsigManualConfigured"`
+	StatsigSignerURL          string                               `json:"statsigSignerURL"`
+	StatsigBuiltin            *settingsdomain.StatsigBuiltinConfig `json:"statsigBuiltin,omitempty"`
+	ClearanceMode             *string                              `json:"clearanceMode,omitempty"`
+	FlareSolverrURL           *string                              `json:"flareSolverrURL,omitempty"`
+	ClearanceTimeout          *string                              `json:"clearanceTimeout,omitempty"`
+	ClearanceRefresh          *string                              `json:"clearanceRefresh,omitempty"`
+	QuotaTimeout              string                               `json:"quotaTimeout"`
+	ChatTimeout               string                               `json:"chatTimeout"`
+	StreamIdleTimeout         string                               `json:"streamIdleTimeout"`
+	ImageTimeout              string                               `json:"imageTimeout"`
+	UploadTimeout             string                               `json:"uploadTimeout"`
+	ReferenceImageUploadProxy *bool                                `json:"referenceImageUploadProxy,omitempty"`
+	VideoTimeout              string                               `json:"videoTimeout"`
+	MediaConcurrency          int                                  `json:"mediaConcurrency"`
+	AllowNSFW                 bool                                 `json:"allowNSFW"`
+	FreeVideoDurationCap      *int                                 `json:"freeVideoDurationCap,omitempty"`
+	RecoveryBackoffBase       string                               `json:"recoveryBackoffBase"`
+	RecoveryBackoffMax        string                               `json:"recoveryBackoffMax"`
 }
 
 type batchConfigDTO struct {
@@ -216,9 +218,12 @@ func (value settingsConfigDTO) toApplication() settingsapp.EditableConfig {
 			ClearanceTimeout: optionalString(value.ProviderWeb.ClearanceTimeout), ClearanceRefresh: optionalString(value.ProviderWeb.ClearanceRefresh),
 			ClearanceProvided: clearanceProvided,
 			ChatTimeout:       value.ProviderWeb.ChatTimeout, StreamIdleTimeout: value.ProviderWeb.StreamIdleTimeout,
-			ImageTimeout:     value.ProviderWeb.ImageTimeout,
-			VideoTimeout:     value.ProviderWeb.VideoTimeout,
-			MediaConcurrency: value.ProviderWeb.MediaConcurrency, AllowNSFW: value.ProviderWeb.AllowNSFW,
+			ImageTimeout:                      value.ProviderWeb.ImageTimeout,
+			VideoTimeout:                      value.ProviderWeb.VideoTimeout,
+			UploadTimeout:                     value.ProviderWeb.UploadTimeout,
+			ReferenceImageUploadProxy:         boolValue(value.ProviderWeb.ReferenceImageUploadProxy),
+			ReferenceImageUploadProxyProvided: value.ProviderWeb.ReferenceImageUploadProxy != nil,
+			MediaConcurrency:                  value.ProviderWeb.MediaConcurrency, AllowNSFW: value.ProviderWeb.AllowNSFW,
 			FreeVideoDurationCap:         intValue(value.ProviderWeb.FreeVideoDurationCap),
 			FreeVideoDurationCapProvided: value.ProviderWeb.FreeVideoDurationCap != nil,
 			RecoveryBackoffBase:          value.ProviderWeb.RecoveryBackoffBase, RecoveryBackoffMax: value.ProviderWeb.RecoveryBackoffMax,
@@ -311,9 +316,11 @@ func newSettingsResponse(value settingsapp.Snapshot) settingsResponse {
 				ClearanceMode:    stringPointer(config.ProviderWeb.ClearanceMode), FlareSolverrURL: stringPointer(config.ProviderWeb.FlareSolverrURL),
 				ClearanceTimeout: stringPointer(config.ProviderWeb.ClearanceTimeout), ClearanceRefresh: stringPointer(config.ProviderWeb.ClearanceRefresh),
 				ChatTimeout: config.ProviderWeb.ChatTimeout, StreamIdleTimeout: config.ProviderWeb.StreamIdleTimeout,
-				ImageTimeout:     config.ProviderWeb.ImageTimeout,
-				VideoTimeout:     config.ProviderWeb.VideoTimeout,
-				MediaConcurrency: config.ProviderWeb.MediaConcurrency, AllowNSFW: config.ProviderWeb.AllowNSFW,
+				ImageTimeout:              config.ProviderWeb.ImageTimeout,
+				VideoTimeout:              config.ProviderWeb.VideoTimeout,
+				UploadTimeout:             config.ProviderWeb.UploadTimeout,
+				ReferenceImageUploadProxy: boolPointer(config.ProviderWeb.ReferenceImageUploadProxy),
+				MediaConcurrency:          config.ProviderWeb.MediaConcurrency, AllowNSFW: config.ProviderWeb.AllowNSFW,
 				FreeVideoDurationCap: intPointer(config.ProviderWeb.FreeVideoDurationCap),
 				RecoveryBackoffBase:  config.ProviderWeb.RecoveryBackoffBase, RecoveryBackoffMax: config.ProviderWeb.RecoveryBackoffMax,
 			},

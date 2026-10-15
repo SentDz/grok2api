@@ -37,6 +37,10 @@ const providerStreamIdleDuration = durationSchema.refine((value) => {
   const seconds = durationSeconds(value);
   return seconds >= 30 && seconds <= 10 * 60;
 });
+const webUploadDuration = durationSchema.refine((value) => {
+  const seconds = durationSeconds(value);
+  return seconds >= 1 && seconds <= 30 * 60;
+});
 const forbiddenCodePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function parseForbiddenCodes(value: string): string[] {
@@ -102,6 +106,7 @@ export const settingsSchema = z.object({
     clearanceTimeout: durationSchema.refine((value) => durationSeconds(value) >= 10 && durationSeconds(value) <= 300),
     clearanceRefresh: durationSchema.refine((value) => durationSeconds(value) >= 60 && durationSeconds(value) <= 86_400),
     quotaTimeout: durationSchema, chatTimeout: durationSchema, streamIdleTimeout: providerStreamIdleDuration, imageTimeout: durationSchema, videoTimeout: durationSchema,
+    uploadTimeout: webUploadDuration, referenceImageUploadProxy: z.boolean(),
     mediaConcurrency: positiveInteger.max(64), allowNSFW: z.boolean(),
     freeVideoDurationCap: z.number().int().min(1).max(15),
     recoveryBackoffBase: durationSchema, recoveryBackoffMax: durationSchema,
@@ -224,6 +229,8 @@ export function toSettingsForm(config: SettingsConfigDTO): SettingsForm {
       clearanceTimeout: parseDuration(config.providerWeb.clearanceTimeout), clearanceRefresh: parseDuration(config.providerWeb.clearanceRefresh),
       quotaTimeout: parseDuration(config.providerWeb.quotaTimeout), chatTimeout: parseDuration(config.providerWeb.chatTimeout), streamIdleTimeout: parseDuration(config.providerWeb.streamIdleTimeout),
       imageTimeout: parseDuration(config.providerWeb.imageTimeout), videoTimeout: parseDuration(config.providerWeb.videoTimeout),
+      uploadTimeout: parseDuration(config.providerWeb.uploadTimeout || "60s"),
+      referenceImageUploadProxy: config.providerWeb.referenceImageUploadProxy ?? false,
       freeVideoDurationCap: config.providerWeb.freeVideoDurationCap || 6,
       recoveryBackoffBase: parseDuration(config.providerWeb.recoveryBackoffBase), recoveryBackoffMax: parseDuration(config.providerWeb.recoveryBackoffMax),
     },
@@ -278,6 +285,7 @@ export function toSettingsDTO(config: SettingsForm): SettingsConfigDTO {
       ...config.providerWeb,
       quotaTimeout: formatDuration(config.providerWeb.quotaTimeout), chatTimeout: formatDuration(config.providerWeb.chatTimeout), streamIdleTimeout: formatDuration(config.providerWeb.streamIdleTimeout),
       imageTimeout: formatDuration(config.providerWeb.imageTimeout), videoTimeout: formatDuration(config.providerWeb.videoTimeout),
+      uploadTimeout: formatDuration(config.providerWeb.uploadTimeout),
       clearanceTimeout: formatDuration(config.providerWeb.clearanceTimeout), clearanceRefresh: formatDuration(config.providerWeb.clearanceRefresh),
       recoveryBackoffBase: formatDuration(config.providerWeb.recoveryBackoffBase), recoveryBackoffMax: formatDuration(config.providerWeb.recoveryBackoffMax),
     },

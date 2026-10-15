@@ -19,6 +19,10 @@ const (
 	MinProviderStreamIdleTimeout    = 30 * time.Second
 	MaxProviderStreamIdleTimeout    = 10 * time.Minute
 
+	DefaultWebUploadTimeout = time.Minute
+	MinWebUploadTimeout     = time.Second
+	MaxWebUploadTimeout     = 30 * time.Minute
+
 	DefaultWebFreeVideoDurationCap = 6
 	MinWebFreeVideoDurationCap     = 1
 	MaxWebFreeVideoDurationCap     = 15
@@ -73,25 +77,27 @@ type ProviderWebConfig struct {
 	BaseURL string
 	// AutoQuotaSyncEnabled controls the background catch-up for Web accounts
 	// that do not have any quota snapshot. Nil preserves the built-in default.
-	AutoQuotaSyncEnabled *bool
-	StatsigMode          string
-	StatsigManualValue   string
-	StatsigSignerURL     string
-	StatsigBuiltin       *StatsigBuiltinConfig
-	ClearanceMode        string
-	FlareSolverrURL      string
-	ClearanceTimeout     time.Duration
-	ClearanceRefresh     time.Duration
-	QuotaTimeout         time.Duration
-	ChatTimeout          time.Duration
-	StreamIdleTimeout    time.Duration
-	ImageTimeout         time.Duration
-	VideoTimeout         time.Duration
-	MediaConcurrency     int
-	AllowNSFW            bool
-	FreeVideoDurationCap int
-	RecoveryBackoffBase  time.Duration
-	RecoveryBackoffMax   time.Duration
+	AutoQuotaSyncEnabled      *bool
+	StatsigMode               string
+	StatsigManualValue        string
+	StatsigSignerURL          string
+	StatsigBuiltin            *StatsigBuiltinConfig
+	ClearanceMode             string
+	FlareSolverrURL           string
+	ClearanceTimeout          time.Duration
+	ClearanceRefresh          time.Duration
+	QuotaTimeout              time.Duration
+	ChatTimeout               time.Duration
+	StreamIdleTimeout         time.Duration
+	ImageTimeout              time.Duration
+	UploadTimeout             time.Duration
+	ReferenceImageUploadProxy *bool
+	VideoTimeout              time.Duration
+	MediaConcurrency          int
+	AllowNSFW                 bool
+	FreeVideoDurationCap      int
+	RecoveryBackoffBase       time.Duration
+	RecoveryBackoffMax        time.Duration
 }
 
 // BatchConfig 定义账号导入、转换、同步、凭据刷新和账号检测的并发上限。

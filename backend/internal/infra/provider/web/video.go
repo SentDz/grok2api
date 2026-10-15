@@ -288,7 +288,7 @@ func (a *Adapter) generateLegacyVideo(ctx context.Context, request provider.Vide
 	}
 	references := make([]string, 0, len(rawReferences))
 	for index, rawReference := range rawReferences {
-		reference, referenceErr := a.prepareVideoReference(provider.WithVideoItem(ctx, index+1, len(rawReferences)), cfg, lease, token, rawReference)
+		reference, referenceErr := a.prepareVideoReference(provider.WithVideoItem(ctx, index+1, len(rawReferences)), cfg, lease, request.Credential, token, rawReference)
 		if referenceErr != nil {
 			return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(referenceErr), 0, referenceErr)
 		}
@@ -360,7 +360,7 @@ func (a *Adapter) generateVideoV15(ctx context.Context, request provider.VideoRe
 	referenceAssetIDs := make([]string, 0, len(request.ReferenceURLs))
 	parentID := ""
 	prepareReference := func(ctx context.Context, rawReference string) (string, error) {
-		uploaded, referenceErr := a.prepareVideoAsset(ctx, cfg, lease, token, rawReference)
+		uploaded, referenceErr := a.prepareVideoAsset(ctx, cfg, lease, request.Credential, token, rawReference)
 		if referenceErr != nil {
 			return "", referenceErr
 		}
@@ -685,7 +685,26 @@ func (a *Adapter) fetchMediaPostVideo(ctx context.Context, cfg Config, lease *eg
 	return provider.VideoResult{}, false, nil
 }
 
-func (a *Adapter) prepareVideoReference(ctx context.Context, cfg Config, lease *egress.Lease, token, value string) (string, error) {
+// uploadVideoReferenceImage reads the live switch for each image, preserving
+// the preparation route for downloads and other operations.
+func (a *Adapter) uploadVideoReferenceImage(ctx context.Context, cfg Config, lease *egress.Lease, credential account.Credential, token string, image provider.ImageInput) (uploadedFile, error) {
+	if a.config().ReferenceImageUploadProxy {
+		proxyLease, err := a.egress.AcquireCredential(ctx, domainegress.ScopeWebSubmit, credential)
+		if err != nil {
+			return uploadedFile{}, fmt.Errorf("获取参考图上传代理: %w", err)
+		}
+		defer proxyLease.Release()
+		if proxyLease.ProxyURL == "" {
+			return uploadedFile{}, errors.New("已开启参考图上传代理，但没有可用代理节点；请配置 Grok Web 或 Grok Web（仅提交）代理")
+		}
+		lease = proxyLease
+	}
+	ctx = withVideoRequest(ctx, "video_reference_upload", lease)
+	reportVideoRequest(ctx, "upload_image", 0, nil)
+	return a.uploadFileV2Direct(ctx, cfg, lease, token, image, cfg.BaseURL+"/imagine", imagineSelfUploadSource, "video_reference_upload")
+}
+
+func (a *Adapter) prepareVideoReference(ctx context.Context, cfg Config, lease *egress.Lease, credential account.Credential, token, value string) (string, error) {
 	provider.ReportVideoStep(ctx, "load_image")
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -695,8 +714,7 @@ func (a *Adapter) prepareVideoReference(ctx context.Context, cfg Config, lease *
 	if err != nil {
 		return "", err
 	}
-	provider.ReportVideoStep(ctx, "upload_image")
-	uploaded, err := a.uploadFileV2Direct(ctx, cfg, lease, token, image, cfg.BaseURL+"/imagine", imagineSelfUploadSource, "video_reference_upload")
+	uploaded, err := a.uploadVideoReferenceImage(ctx, cfg, lease, credential, token, image)
 	if err != nil {
 		return "", err
 	}
@@ -706,7 +724,7 @@ func (a *Adapter) prepareVideoReference(ctx context.Context, cfg Config, lease *
 	return uploaded.URI, nil
 }
 
-func (a *Adapter) prepareVideoAsset(ctx context.Context, cfg Config, lease *egress.Lease, token, value string) (uploadedFile, error) {
+func (a *Adapter) prepareVideoAsset(ctx context.Context, cfg Config, lease *egress.Lease, credential account.Credential, token, value string) (uploadedFile, error) {
 	provider.ReportVideoStep(ctx, "load_image")
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -716,8 +734,7 @@ func (a *Adapter) prepareVideoAsset(ctx context.Context, cfg Config, lease *egre
 	if err != nil {
 		return uploadedFile{}, err
 	}
-	provider.ReportVideoStep(ctx, "upload_image")
-	uploaded, err := a.uploadFileV2Direct(ctx, cfg, lease, token, image, cfg.BaseURL+"/imagine", imagineSelfUploadSource, "video_reference_upload")
+	uploaded, err := a.uploadVideoReferenceImage(ctx, cfg, lease, credential, token, image)
 	if err != nil {
 		return uploadedFile{}, err
 	}

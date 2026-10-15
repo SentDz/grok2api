@@ -94,6 +94,11 @@ provider:
     # 公网必须是 HTTPS:443；内网可用 HTTP。默认 https://grok.wodf.de/sign。
     statsigMode: builtin
     statsigSignerURL: "https://grok.wodf.de/sign"
+    # [按需修改] 视频参考图上传使用提交代理，默认关闭；无可用代理时明确报错。
+    referenceImageUploadProxy: false
+    # [按需修改] 单次 V2 文件上传总超时，含读取响应；1s–30m，默认 60s。
+    # 两项均可在管理端 Grok Web 设置中热更新，下一次上传生效。
+    uploadTimeout: 60s
 
 media:
   # [通常不要修改] 当前仅支持 local；容量和清理策略在管理端设置。

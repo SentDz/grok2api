@@ -165,26 +165,28 @@ type BuildProviderConfig struct {
 const DefaultBuildFallbackBaseURL = "https://api.x.ai/v1"
 
 type WebProviderConfig struct {
-	BaseURL              string                              `yaml:"baseURL"`
-	AutoQuotaSyncEnabled bool                                `yaml:"-"`
-	StatsigMode          string                              `yaml:"statsigMode"`
-	StatsigManualValue   string                              `yaml:"-"`
-	StatsigSignerURL     string                              `yaml:"statsigSignerURL"`
-	StatsigBuiltin       settingsdomain.StatsigBuiltinConfig `yaml:"-"`
-	ClearanceMode        string                              `yaml:"-"`
-	FlareSolverrURL      string                              `yaml:"-"`
-	ClearanceTimeout     Duration                            `yaml:"-"`
-	ClearanceRefresh     Duration                            `yaml:"-"`
-	QuotaTimeout         Duration                            `yaml:"quotaTimeout"`
-	ChatTimeout          Duration                            `yaml:"chatTimeout"`
-	StreamIdleTimeout    Duration                            `yaml:"-"`
-	ImageTimeout         Duration                            `yaml:"imageTimeout"`
-	VideoTimeout         Duration                            `yaml:"videoTimeout"`
-	MediaConcurrency     int                                 `yaml:"mediaConcurrency"`
-	AllowNSFW            bool                                `yaml:"allowNSFW"`
-	FreeVideoDurationCap int                                 `yaml:"freeVideoDurationCap"`
-	RecoveryBackoffBase  Duration                            `yaml:"recoveryBackoffBase"`
-	RecoveryBackoffMax   Duration                            `yaml:"recoveryBackoffMax"`
+	BaseURL                   string                              `yaml:"baseURL"`
+	AutoQuotaSyncEnabled      bool                                `yaml:"-"`
+	StatsigMode               string                              `yaml:"statsigMode"`
+	StatsigManualValue        string                              `yaml:"-"`
+	StatsigSignerURL          string                              `yaml:"statsigSignerURL"`
+	StatsigBuiltin            settingsdomain.StatsigBuiltinConfig `yaml:"-"`
+	ClearanceMode             string                              `yaml:"-"`
+	FlareSolverrURL           string                              `yaml:"-"`
+	ClearanceTimeout          Duration                            `yaml:"-"`
+	ClearanceRefresh          Duration                            `yaml:"-"`
+	QuotaTimeout              Duration                            `yaml:"quotaTimeout"`
+	ChatTimeout               Duration                            `yaml:"chatTimeout"`
+	StreamIdleTimeout         Duration                            `yaml:"-"`
+	ImageTimeout              Duration                            `yaml:"imageTimeout"`
+	UploadTimeout             Duration                            `yaml:"uploadTimeout"`
+	ReferenceImageUploadProxy bool                                `yaml:"referenceImageUploadProxy"`
+	VideoTimeout              Duration                            `yaml:"videoTimeout"`
+	MediaConcurrency          int                                 `yaml:"mediaConcurrency"`
+	AllowNSFW                 bool                                `yaml:"allowNSFW"`
+	FreeVideoDurationCap      int                                 `yaml:"freeVideoDurationCap"`
+	RecoveryBackoffBase       Duration                            `yaml:"recoveryBackoffBase"`
+	RecoveryBackoffMax        Duration                            `yaml:"recoveryBackoffMax"`
 }
 
 type ConsoleProviderConfig struct {
@@ -681,6 +683,9 @@ func (c Config) Validate() error {
 	if idle := c.Provider.Web.StreamIdleTimeout.Value(); idle < settingsdomain.MinProviderStreamIdleTimeout || idle > settingsdomain.MaxProviderStreamIdleTimeout {
 		return errors.New("Grok Web 流式空闲超时必须在 30 秒到 10 分钟之间")
 	}
+	if timeout := c.Provider.Web.UploadTimeout.Value(); timeout < settingsdomain.MinWebUploadTimeout || timeout > settingsdomain.MaxWebUploadTimeout {
+		return errors.New("provider.web.uploadTimeout 必须在 1 秒到 30 分钟之间")
+	}
 	if c.Provider.Web.MediaConcurrency < 1 || c.Provider.Web.MediaConcurrency > 64 {
 		return errors.New("provider.web 媒体并发必须在 1 到 64 之间")
 	}
@@ -962,6 +967,7 @@ func defaultConfig() Config {
 				ChatTimeout:  Duration(2 * time.Minute), StreamIdleTimeout: Duration(settingsdomain.DefaultWebStreamIdleTimeout),
 				ImageTimeout:     Duration(3 * time.Minute),
 				VideoTimeout:     Duration(15 * time.Minute),
+				UploadTimeout:    Duration(settingsdomain.DefaultWebUploadTimeout),
 				MediaConcurrency: 4, FreeVideoDurationCap: settingsdomain.DefaultWebFreeVideoDurationCap, RecoveryBackoffBase: Duration(30 * time.Second),
 				RecoveryBackoffMax: Duration(30 * time.Minute),
 			},

@@ -135,6 +135,25 @@ func TestAccountIsolationSettingsPresenceIsPreserved(t *testing.T) {
 	}
 }
 
+func TestUploadProxyPresenceIsPreserved(t *testing.T) {
+	response := newSettingsResponse(settingsapp.Snapshot{Config: settingsapp.EditableConfig{
+		ProviderWeb: settingsapp.ProviderWebConfig{ReferenceImageUploadProxy: true, UploadTimeout: "3m"},
+	}})
+	if response.Config.ProviderWeb.ReferenceImageUploadProxy == nil || !*response.Config.ProviderWeb.ReferenceImageUploadProxy || response.Config.ProviderWeb.UploadTimeout != "3m" {
+		t.Fatal("upload configuration missing from response")
+	}
+	for _, payload := range []string{`{}`, `{"providerWeb":{"referenceImageUploadProxy":false,"uploadTimeout":"60s"}}`} {
+		var dto settingsConfigDTO
+		if err := json.Unmarshal([]byte(payload), &dto); err != nil {
+			t.Fatal(err)
+		}
+		input := dto.toApplication().ProviderWeb
+		if input.ReferenceImageUploadProxy || input.ReferenceImageUploadProxyProvided != (payload != `{}`) {
+			t.Fatal("omitted and explicit false upload proxy settings were confused")
+		}
+	}
+}
+
 func TestFreeVideoDurationCapPresenceIsPreserved(t *testing.T) {
 	response := newSettingsResponse(settingsapp.Snapshot{Config: settingsapp.EditableConfig{
 		ProviderWeb: settingsapp.ProviderWebConfig{FreeVideoDurationCap: 8},

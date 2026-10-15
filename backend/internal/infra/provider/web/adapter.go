@@ -5,6 +5,7 @@ import (
 	"github.com/chenyme/grok2api/backend/internal/domain/statsig"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
 	modeldomain "github.com/chenyme/grok2api/backend/internal/domain/model"
@@ -16,18 +17,20 @@ import (
 )
 
 type Config struct {
-	BaseURL                  string
-	StatsigMode              string
-	StatsigManualValue       string
-	StatsigSignerURL         string
-	QuotaTimeoutSeconds      int
-	ChatTimeoutSeconds       int
-	StreamIdleTimeoutSeconds int
-	ImageTimeoutSeconds      int
-	VideoTimeoutSeconds      int
-	MaxInputImageBytes       int64
-	AllowNSFW                bool
-	FreeVideoDurationCap     int
+	BaseURL                   string
+	StatsigMode               string
+	StatsigManualValue        string
+	StatsigSignerURL          string
+	QuotaTimeoutSeconds       int
+	ChatTimeoutSeconds        int
+	StreamIdleTimeoutSeconds  int
+	ImageTimeoutSeconds       int
+	UploadTimeout             time.Duration
+	ReferenceImageUploadProxy bool
+	VideoTimeoutSeconds       int
+	MaxInputImageBytes        int64
+	AllowNSFW                 bool
+	FreeVideoDurationCap      int
 }
 
 type Adapter struct {
@@ -83,6 +86,9 @@ func normalizedConfig(cfg Config) Config {
 	}
 	if cfg.ImageTimeoutSeconds <= 0 {
 		cfg.ImageTimeoutSeconds = 180
+	}
+	if cfg.UploadTimeout <= 0 {
+		cfg.UploadTimeout = settingsdomain.DefaultWebUploadTimeout
 	}
 	if cfg.VideoTimeoutSeconds <= 0 {
 		cfg.VideoTimeoutSeconds = 900

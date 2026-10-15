@@ -1449,7 +1449,7 @@ func (a *Adapter) uploadFileV2Direct(ctx context.Context, cfg Config, lease *egr
 	if err != nil {
 		return uploadedFile{}, err
 	}
-	requestCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	requestCtx, cancel := context.WithTimeout(ctx, a.config().UploadTimeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, cfg.BaseURL+"/http/upload-file-v2/direct", bytes.NewReader(body))
 	if err != nil {

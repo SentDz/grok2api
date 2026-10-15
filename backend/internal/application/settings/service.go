@@ -41,27 +41,30 @@ type ProviderWebConfig struct {
 	AutoQuotaSyncEnabled bool
 	// AutoQuotaSyncEnabledProvided preserves the current value when an older
 	// management client omits the newly added field.
-	AutoQuotaSyncEnabledProvided bool
-	StatsigMode                  string
-	StatsigManualValue           string
-	StatsigManualConfigured      bool
-	StatsigSignerURL             string
-	StatsigBuiltin               *settingsdomain.StatsigBuiltinConfig
-	ClearanceMode                string
-	FlareSolverrURL              string
-	ClearanceTimeout             string
-	ClearanceRefresh             string
-	QuotaTimeout                 string
-	ChatTimeout                  string
-	StreamIdleTimeout            string
-	ImageTimeout                 string
-	VideoTimeout                 string
-	MediaConcurrency             int
-	AllowNSFW                    bool
-	FreeVideoDurationCap         int
-	FreeVideoDurationCapProvided bool
-	RecoveryBackoffBase          string
-	RecoveryBackoffMax           string
+	AutoQuotaSyncEnabledProvided      bool
+	StatsigMode                       string
+	StatsigManualValue                string
+	StatsigManualConfigured           bool
+	StatsigSignerURL                  string
+	StatsigBuiltin                    *settingsdomain.StatsigBuiltinConfig
+	ClearanceMode                     string
+	FlareSolverrURL                   string
+	ClearanceTimeout                  string
+	ClearanceRefresh                  string
+	QuotaTimeout                      string
+	ChatTimeout                       string
+	StreamIdleTimeout                 string
+	ImageTimeout                      string
+	UploadTimeout                     string
+	ReferenceImageUploadProxy         bool
+	ReferenceImageUploadProxyProvided bool
+	VideoTimeout                      string
+	MediaConcurrency                  int
+	AllowNSFW                         bool
+	FreeVideoDurationCap              int
+	FreeVideoDurationCapProvided      bool
+	RecoveryBackoffBase               string
+	RecoveryBackoffMax                string
 	// ClearanceProvided distinguishes older admin clients that predate the
 	// managed-clearance fields from an explicit update to those fields.
 	ClearanceProvided bool
@@ -362,6 +365,14 @@ func applyDomainConfig(base config.Config, value settingsdomain.Config) config.C
 	if value.ProviderWeb.AutoQuotaSyncEnabled != nil {
 		autoQuotaSyncEnabled = *value.ProviderWeb.AutoQuotaSyncEnabled
 	}
+	uploadTimeout := value.ProviderWeb.UploadTimeout
+	if uploadTimeout <= 0 {
+		uploadTimeout = base.Provider.Web.UploadTimeout.Value()
+	}
+	referenceImageUploadProxy := base.Provider.Web.ReferenceImageUploadProxy
+	if value.ProviderWeb.ReferenceImageUploadProxy != nil {
+		referenceImageUploadProxy = *value.ProviderWeb.ReferenceImageUploadProxy
+	}
 	freeVideoDurationCap := value.ProviderWeb.FreeVideoDurationCap
 	if freeVideoDurationCap == 0 {
 		freeVideoDurationCap = base.Provider.Web.FreeVideoDurationCap
@@ -378,9 +389,11 @@ func applyDomainConfig(base config.Config, value settingsdomain.Config) config.C
 		ClearanceMode: clearanceMode, FlareSolverrURL: flareSolverrURL,
 		ClearanceTimeout: config.Duration(clearanceTimeout), ClearanceRefresh: config.Duration(clearanceRefresh),
 		ChatTimeout: config.Duration(value.ProviderWeb.ChatTimeout), StreamIdleTimeout: config.Duration(value.ProviderWeb.StreamIdleTimeout),
-		ImageTimeout:     config.Duration(value.ProviderWeb.ImageTimeout),
-		VideoTimeout:     config.Duration(value.ProviderWeb.VideoTimeout),
-		MediaConcurrency: value.ProviderWeb.MediaConcurrency, AllowNSFW: value.ProviderWeb.AllowNSFW,
+		ImageTimeout:              config.Duration(value.ProviderWeb.ImageTimeout),
+		VideoTimeout:              config.Duration(value.ProviderWeb.VideoTimeout),
+		UploadTimeout:             config.Duration(uploadTimeout),
+		ReferenceImageUploadProxy: referenceImageUploadProxy,
+		MediaConcurrency:          value.ProviderWeb.MediaConcurrency, AllowNSFW: value.ProviderWeb.AllowNSFW,
 		FreeVideoDurationCap: settingsdomain.NormalizeWebFreeVideoDurationCap(freeVideoDurationCap),
 		RecoveryBackoffBase:  config.Duration(value.ProviderWeb.RecoveryBackoffBase), RecoveryBackoffMax: config.Duration(value.ProviderWeb.RecoveryBackoffMax),
 	}
@@ -528,9 +541,11 @@ func toDomainConfig(value config.Config) settingsdomain.Config {
 			ClearanceMode:    value.Provider.Web.ClearanceMode, FlareSolverrURL: value.Provider.Web.FlareSolverrURL,
 			ClearanceTimeout: value.Provider.Web.ClearanceTimeout.Value(), ClearanceRefresh: value.Provider.Web.ClearanceRefresh.Value(),
 			ChatTimeout: value.Provider.Web.ChatTimeout.Value(), StreamIdleTimeout: value.Provider.Web.StreamIdleTimeout.Value(),
-			ImageTimeout:     value.Provider.Web.ImageTimeout.Value(),
-			VideoTimeout:     value.Provider.Web.VideoTimeout.Value(),
-			MediaConcurrency: value.Provider.Web.MediaConcurrency, AllowNSFW: value.Provider.Web.AllowNSFW,
+			ImageTimeout:              value.Provider.Web.ImageTimeout.Value(),
+			VideoTimeout:              value.Provider.Web.VideoTimeout.Value(),
+			UploadTimeout:             value.Provider.Web.UploadTimeout.Value(),
+			ReferenceImageUploadProxy: boolPointer(value.Provider.Web.ReferenceImageUploadProxy),
+			MediaConcurrency:          value.Provider.Web.MediaConcurrency, AllowNSFW: value.Provider.Web.AllowNSFW,
 			FreeVideoDurationCap: settingsdomain.NormalizeWebFreeVideoDurationCap(value.Provider.Web.FreeVideoDurationCap),
 			RecoveryBackoffBase:  value.Provider.Web.RecoveryBackoffBase.Value(), RecoveryBackoffMax: value.Provider.Web.RecoveryBackoffMax.Value(),
 		},
@@ -651,6 +666,9 @@ func mergeEditable(current config.Config, input EditableConfig) (config.Config, 
 	}
 	next.Provider.Web.MediaConcurrency = input.ProviderWeb.MediaConcurrency
 	next.Provider.Web.AllowNSFW = input.ProviderWeb.AllowNSFW
+	if input.ProviderWeb.ReferenceImageUploadProxyProvided {
+		next.Provider.Web.ReferenceImageUploadProxy = input.ProviderWeb.ReferenceImageUploadProxy
+	}
 	if input.ProviderWeb.FreeVideoDurationCapProvided {
 		next.Provider.Web.FreeVideoDurationCap = settingsdomain.NormalizeWebFreeVideoDurationCap(input.ProviderWeb.FreeVideoDurationCap)
 	}
@@ -744,6 +762,9 @@ func mergeEditable(current config.Config, input EditableConfig) (config.Config, 
 	if strings.TrimSpace(input.ProviderBuild.StreamIdleTimeout) != "" {
 		durations = append(durations, durationInput{"providerBuild.streamIdleTimeout", input.ProviderBuild.StreamIdleTimeout, func(value config.Duration) { next.Provider.Build.StreamIdleTimeout = value }})
 	}
+	if strings.TrimSpace(input.ProviderWeb.UploadTimeout) != "" {
+		durations = append(durations, durationInput{"providerWeb.uploadTimeout", input.ProviderWeb.UploadTimeout, func(value config.Duration) { next.Provider.Web.UploadTimeout = value }})
+	}
 	if strings.TrimSpace(input.ProviderWeb.StreamIdleTimeout) != "" {
 		durations = append(durations, durationInput{"providerWeb.streamIdleTimeout", input.ProviderWeb.StreamIdleTimeout, func(value config.Duration) { next.Provider.Web.StreamIdleTimeout = value }})
 	}
@@ -803,9 +824,12 @@ func toEditable(cfg config.Config) EditableConfig {
 			ClearanceMode:    cfg.Provider.Web.ClearanceMode, FlareSolverrURL: cfg.Provider.Web.FlareSolverrURL,
 			ClearanceTimeout: cfg.Provider.Web.ClearanceTimeout.String(), ClearanceRefresh: cfg.Provider.Web.ClearanceRefresh.String(),
 			ChatTimeout: cfg.Provider.Web.ChatTimeout.String(), StreamIdleTimeout: cfg.Provider.Web.StreamIdleTimeout.String(),
-			ImageTimeout:     cfg.Provider.Web.ImageTimeout.String(),
-			VideoTimeout:     cfg.Provider.Web.VideoTimeout.String(),
-			MediaConcurrency: cfg.Provider.Web.MediaConcurrency, AllowNSFW: cfg.Provider.Web.AllowNSFW,
+			ImageTimeout:                      cfg.Provider.Web.ImageTimeout.String(),
+			VideoTimeout:                      cfg.Provider.Web.VideoTimeout.String(),
+			UploadTimeout:                     cfg.Provider.Web.UploadTimeout.String(),
+			ReferenceImageUploadProxy:         cfg.Provider.Web.ReferenceImageUploadProxy,
+			ReferenceImageUploadProxyProvided: true,
+			MediaConcurrency:                  cfg.Provider.Web.MediaConcurrency, AllowNSFW: cfg.Provider.Web.AllowNSFW,
 			FreeVideoDurationCap:         settingsdomain.NormalizeWebFreeVideoDurationCap(cfg.Provider.Web.FreeVideoDurationCap),
 			FreeVideoDurationCapProvided: true,
 			RecoveryBackoffBase:          cfg.Provider.Web.RecoveryBackoffBase.String(), RecoveryBackoffMax: cfg.Provider.Web.RecoveryBackoffMax.String(),
